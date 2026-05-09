@@ -102,20 +102,24 @@ def select_analysts() -> List[AnalystType]:
     return choices
 
 
-def select_research_depth() -> int:
-    """Select research depth using an interactive selection."""
+def select_research_depth():
+    """Select research depth using an interactive selection.
+
+    Returns a tuple of (label, rounds) e.g. ("Shallow", 1).
+    """
 
     # Define research depth options with their corresponding values
     DEPTH_OPTIONS = [
-        ("Shallow - Quick research, few debate and strategy discussion rounds", 1),
-        ("Medium - Middle ground, moderate debate rounds and strategy discussion", 3),
-        ("Deep - Comprehensive research, in depth debate and strategy discussion", 5),
+        ("Shallow", "Quick research, few debate and strategy discussion rounds", 1),
+        ("Medium", "Middle ground, moderate debate rounds and strategy discussion", 3),
+        ("Deep", "Comprehensive research, in depth debate and strategy discussion", 5),
     ]
 
     choice = questionary.select(
         "Select Your [Research Depth]:",
         choices=[
-            questionary.Choice(display, value=value) for display, value in DEPTH_OPTIONS
+            questionary.Choice(f"{label} - {desc}", value=(label, rounds))
+            for label, desc, rounds in DEPTH_OPTIONS
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(

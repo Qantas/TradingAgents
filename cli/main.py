@@ -546,7 +546,7 @@ def get_user_selections():
             "Step 5: Research Depth", "Select your research depth level"
         )
     )
-    selected_research_depth = select_research_depth()
+    selected_research_depth_label, selected_research_depth = select_research_depth()
 
     # Step 6: LLM Provider
     console.print(
@@ -601,6 +601,7 @@ def get_user_selections():
         "analysis_date": analysis_date,
         "analysts": selected_analysts,
         "research_depth": selected_research_depth,
+        "research_depth_label": selected_research_depth_label,
         "llm_provider": selected_llm_provider.lower(),
         "backend_url": backend_url,
         "shallow_thinker": selected_shallow_thinker,
@@ -636,7 +637,7 @@ def get_analysis_date():
             )
 
 
-def save_report_to_disk(final_state, ticker: str, save_path: Path):
+def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict = None, meta: dict = None):
     """Save complete analysis report to disk with organized subfolders."""
     save_path.mkdir(parents=True, exist_ok=True)
     sections = []
@@ -721,7 +722,58 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
     # Write consolidated report
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    if meta:
+        depth_label = meta.get("research_depth_label", "")
+        depth_rounds = meta.get("research_depth", "")
+        quick = meta.get("shallow_thinker", "")
+        deep = meta.get("deep_thinker", "")
+        provider = meta.get("llm_provider", "")
+        header = (
+            f"# Trading Analysis Report: {ticker}\n\n"
+            f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n"
+            f"Provider: {provider}  \n"
+            f"Deep Thinker: {deep}  \n"
+            f"Quick Thinker: {quick}  \n"
+            f"Research Depth: {depth_label} (debate rounds: {depth_rounds})  \n\n"
+        )
+    else:
+        header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+
+    if timing:
+        total = timing.get("_total_seconds", 0)
+        mm, ss = divmod(int(total), 60)
+        hh, mm = divmod(mm, 60)
+        total_str = f"{hh:02d}:{mm:02d}:{ss:02d}"
+        rows = []
+        AGENT_LABELS = {
+            "Market Analyst": "Market Analyst",
+            "Social Analyst": "Social Analyst",
+            "News Analyst": "News Analyst",
+            "Fundamentals Analyst": "Fundamentals Analyst",
+            "Bull Researcher": "Bull Researcher",
+            "Bear Researcher": "Bear Researcher",
+            "Research Manager": "Research Manager",
+            "Trader": "Trader",
+            "Aggressive Analyst": "Aggressive Analyst",
+            "Conservative Analyst": "Conservative Analyst",
+            "Neutral Analyst": "Neutral Analyst",
+            "Portfolio Manager": "Portfolio Manager",
+        }
+        for key, label in AGENT_LABELS.items():
+            if key in timing:
+                secs = timing[key]
+                m, s = divmod(int(secs), 60)
+                pct = (secs / total * 100) if total else 0
+                rows.append(f"| {label} | {m:02d}:{s:02d} | {pct:.1f}% |")
+        timing_table = (
+            f"## Run Timing\n\n"
+            f"**Total elapsed: {total_str}**\n\n"
+            f"| Agent | Duration | % of Total |\n"
+            f"|---|---|---|\n"
+            + "\n".join(rows) + "\n"
+        )
+        header += timing_table + "\n\n"
+
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
     return save_path / "complete_report.md"
 
@@ -1051,6 +1103,25 @@ def run_analysis(checkpoint: bool = False):
         # (LLM tracking is handled separately via LLM constructor)
         args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
+        # Per-agent timing: map LangGraph node names to human labels
+        _AGENT_NODE_LABELS = {
+            "Market Analyst": "Market Analyst",
+            "Social Analyst": "Social Analyst",
+            "News Analyst": "News Analyst",
+            "Fundamentals Analyst": "Fundamentals Analyst",
+            "Bull Researcher": "Bull Researcher",
+            "Bear Researcher": "Bear Researcher",
+            "Research Manager": "Research Manager",
+            "Trader": "Trader",
+            "Aggressive Analyst": "Aggressive Analyst",
+            "Conservative Analyst": "Conservative Analyst",
+            "Neutral Analyst": "Neutral Analyst",
+            "Portfolio Manager": "Portfolio Manager",
+        }
+        agent_elapsed = {}
+        _agent_phase_start = start_time
+        _current_agent = None
+
         # Stream the analysis
         trace = []
         for chunk in graph.graph.stream(init_agent_state, **args):
@@ -1147,6 +1218,15 @@ def run_analysis(checkpoint: bool = False):
                         message_buffer.update_agent_status("Neutral Analyst", "completed")
                         message_buffer.update_agent_status("Portfolio Manager", "completed")
 
+            # Record per-agent timing when a tracked node's chunk arrives
+            now = time.time()
+            for node_key in chunk:
+                if node_key in _AGENT_NODE_LABELS:
+                    label = _AGENT_NODE_LABELS[node_key]
+                    agent_elapsed[label] = agent_elapsed.get(label, 0) + (now - _agent_phase_start)
+                    _agent_phase_start = now
+                    _current_agent = label
+
             # Update the display
             update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
@@ -1185,7 +1265,15 @@ def run_analysis(checkpoint: bool = False):
         ).strip()
         save_path = Path(save_path_str)
         try:
-            report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
+            agent_elapsed["_total_seconds"] = time.time() - start_time
+            report_meta = {
+                "llm_provider": selections["llm_provider"],
+                "deep_thinker": selections["deep_thinker"],
+                "shallow_thinker": selections["shallow_thinker"],
+                "research_depth": selections["research_depth"],
+                "research_depth_label": selections["research_depth_label"],
+            }
+            report_file = save_report_to_disk(final_state, selections["ticker"], save_path, timing=agent_elapsed, meta=report_meta)
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
         except Exception as e:
