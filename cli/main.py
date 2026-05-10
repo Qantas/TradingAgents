@@ -1126,9 +1126,16 @@ def run_analysis(checkpoint: bool = False):
 
         # Stream the analysis
         trace = []
+        _analyst_msg_fields = (
+            "market_messages", "social_messages", "news_messages", "fundamentals_messages"
+        )
         for chunk in graph.graph.stream(init_agent_state, **args):
-            # Process all messages in chunk, deduplicating by message ID
-            for message in chunk.get("messages", []):
+            # Process messages from all fields (analysts use per-analyst fields; shared
+            # messages field carries non-analyst traffic). Dedup by message ID.
+            all_msg_sources = list(chunk.get("messages", [])) + [
+                m for f in _analyst_msg_fields for m in chunk.get(f, [])
+            ]
+            for message in all_msg_sources:
                 msg_id = getattr(message, "id", None)
                 if msg_id is not None:
                     if msg_id in message_buffer._processed_message_ids:

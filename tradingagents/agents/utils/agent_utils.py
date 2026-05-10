@@ -42,19 +42,12 @@ def build_instrument_context(ticker: str) -> str:
         "preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`)."
     )
 
-def create_msg_delete():
+def create_msg_delete(messages_key="messages"):
     def delete_messages(state):
-        """Clear messages and add placeholder for Anthropic compatibility"""
-        messages = state["messages"]
-
-        # Remove all messages
+        messages = state.get(messages_key, [])
         removal_operations = [RemoveMessage(id=m.id) for m in messages]
-
-        # Add a minimal placeholder message
         placeholder = HumanMessage(content="Continue")
-
-        return {"messages": removal_operations + [placeholder]}
-
+        return {messages_key: removal_operations + [placeholder]}
     return delete_messages
 
 

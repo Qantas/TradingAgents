@@ -12,34 +12,26 @@ class ConditionalLogic:
         self.max_risk_discuss_rounds = max_risk_discuss_rounds
 
     def should_continue_market(self, state: AgentState):
-        """Determine if market analysis should continue."""
-        messages = state["messages"]
-        last_message = messages[-1]
-        if last_message.tool_calls:
+        messages = state.get("market_messages", [])
+        if messages and messages[-1].tool_calls:
             return "tools_market"
         return "Msg Clear Market"
 
     def should_continue_social(self, state: AgentState):
-        """Determine if social media analysis should continue."""
-        messages = state["messages"]
-        last_message = messages[-1]
-        if last_message.tool_calls:
+        messages = state.get("social_messages", [])
+        if messages and messages[-1].tool_calls:
             return "tools_social"
         return "Msg Clear Social"
 
     def should_continue_news(self, state: AgentState):
-        """Determine if news analysis should continue."""
-        messages = state["messages"]
-        last_message = messages[-1]
-        if last_message.tool_calls:
+        messages = state.get("news_messages", [])
+        if messages and messages[-1].tool_calls:
             return "tools_news"
         return "Msg Clear News"
 
     def should_continue_fundamentals(self, state: AgentState):
-        """Determine if fundamentals analysis should continue."""
-        messages = state["messages"]
-        last_message = messages[-1]
-        if last_message.tool_calls:
+        messages = state.get("fundamentals_messages", [])
+        if messages and messages[-1].tool_calls:
             return "tools_fundamentals"
         return "Msg Clear Fundamentals"
 

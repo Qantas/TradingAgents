@@ -156,35 +156,20 @@ class TradingAgentsGraph:
         """Create tool nodes for different data sources using abstract methods."""
         return {
             "market": ToolNode(
-                [
-                    # Core stock data tools
-                    get_stock_data,
-                    # Technical indicators
-                    get_indicators,
-                ]
+                [get_stock_data, get_indicators],
+                messages_key="market_messages",
             ),
             "social": ToolNode(
-                [
-                    # News tools for social media analysis
-                    get_news,
-                ]
+                [get_news],
+                messages_key="social_messages",
             ),
             "news": ToolNode(
-                [
-                    # News and insider information
-                    get_news,
-                    get_global_news,
-                    get_insider_transactions,
-                ]
+                [get_news, get_global_news, get_insider_transactions],
+                messages_key="news_messages",
             ),
             "fundamentals": ToolNode(
-                [
-                    # Fundamental analysis tools
-                    get_fundamentals,
-                    get_balance_sheet,
-                    get_cashflow,
-                    get_income_statement,
-                ]
+                [get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement],
+                messages_key="fundamentals_messages",
             ),
         }
 
@@ -317,11 +302,14 @@ class TradingAgentsGraph:
         if self.debug:
             trace = []
             for chunk in self.graph.stream(init_agent_state, **args):
-                if len(chunk["messages"]) == 0:
-                    pass
-                else:
-                    chunk["messages"][-1].pretty_print()
-                    trace.append(chunk)
+                trace.append(chunk)
+                # Print latest message from any analyst field or shared messages
+                for field in ("market_messages", "social_messages", "news_messages",
+                              "fundamentals_messages", "messages"):
+                    msgs = chunk.get(field, [])
+                    if msgs:
+                        msgs[-1].pretty_print()
+                        break
             final_state = trace[-1]
         else:
             final_state = self.graph.invoke(init_agent_state, **args)

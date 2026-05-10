@@ -47,31 +47,23 @@ class GraphSetup:
         tool_nodes = {}
 
         if "market" in selected_analysts:
-            analyst_nodes["market"] = create_market_analyst(
-                self.quick_thinking_llm
-            )
-            delete_nodes["market"] = create_msg_delete()
+            analyst_nodes["market"] = create_market_analyst(self.quick_thinking_llm)
+            delete_nodes["market"] = create_msg_delete("market_messages")
             tool_nodes["market"] = self.tool_nodes["market"]
 
         if "social" in selected_analysts:
-            analyst_nodes["social"] = create_social_media_analyst(
-                self.quick_thinking_llm
-            )
-            delete_nodes["social"] = create_msg_delete()
+            analyst_nodes["social"] = create_social_media_analyst(self.quick_thinking_llm)
+            delete_nodes["social"] = create_msg_delete("social_messages")
             tool_nodes["social"] = self.tool_nodes["social"]
 
         if "news" in selected_analysts:
-            analyst_nodes["news"] = create_news_analyst(
-                self.quick_thinking_llm
-            )
-            delete_nodes["news"] = create_msg_delete()
+            analyst_nodes["news"] = create_news_analyst(self.quick_thinking_llm)
+            delete_nodes["news"] = create_msg_delete("news_messages")
             tool_nodes["news"] = self.tool_nodes["news"]
 
         if "fundamentals" in selected_analysts:
-            analyst_nodes["fundamentals"] = create_fundamentals_analyst(
-                self.quick_thinking_llm
-            )
-            delete_nodes["fundamentals"] = create_msg_delete()
+            analyst_nodes["fundamentals"] = create_fundamentals_analyst(self.quick_thinking_llm)
+            delete_nodes["fundamentals"] = create_msg_delete("fundamentals_messages")
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
 
         # Create researcher and manager nodes
@@ -107,31 +99,25 @@ class GraphSetup:
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
-        # Define edges
-        # Start with the first analyst
-        first_analyst = selected_analysts[0]
-        workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
+        # Fan-out: launch all analysts in parallel from START
+        for analyst_type in selected_analysts:
+            workflow.add_edge(START, f"{analyst_type.capitalize()} Analyst")
 
-        # Connect analysts in sequence
-        for i, analyst_type in enumerate(selected_analysts):
+        # Wire each analyst's ReAct loop; Msg Clear fans in to Bull Researcher
+        for analyst_type in selected_analysts:
             current_analyst = f"{analyst_type.capitalize()} Analyst"
             current_tools = f"tools_{analyst_type}"
             current_clear = f"Msg Clear {analyst_type.capitalize()}"
 
-            # Add conditional edges for current analyst
             workflow.add_conditional_edges(
                 current_analyst,
                 getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
                 [current_tools, current_clear],
             )
             workflow.add_edge(current_tools, current_analyst)
-
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
-            if i < len(selected_analysts) - 1:
-                next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
-                workflow.add_edge(current_clear, next_analyst)
-            else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+            # Fan-in: each analyst's clear node connects to Bull Researcher.
+            # LangGraph waits for all incoming edges before executing Bull Researcher.
+            workflow.add_edge(current_clear, "Bull Researcher")
 
         # Add remaining edges
         workflow.add_conditional_edges(
