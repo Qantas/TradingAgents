@@ -760,9 +760,9 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             m, s = divmod(int(secs), 60)
             pct = (secs / total * 100) if total else 0
             if has_llm:
-                llm_secs = timing.get(f"llm_{key}", 0)
-                lm, ls = divmod(int(llm_secs), 60)
-                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% | {lm:02d}:{ls:02d} |")
+                llm_secs = timing.get(f"llm_{key}")
+                llm_cell = f"{int(llm_secs)//60:02d}:{int(llm_secs)%60:02d}" if llm_secs else "-"
+                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% | {llm_cell} |")
             else:
                 rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% |")
         if has_llm:
@@ -1120,7 +1120,6 @@ def run_analysis(checkpoint: bool = False):
         _prev_risk = {}
 
         # Seed LLM timing attribution. Analysts run in parallel so they share one bucket.
-        _analyst_seq = []  # no longer used for timing; kept to avoid NameError below
         stats_handler.set_current_agent("Analyst Phase" if selected_analyst_keys else "Bull Researcher")
 
         # Stream the analysis
@@ -1242,25 +1241,29 @@ def run_analysis(checkpoint: bool = False):
                     detected = "Analyst Phase"
             elif chunk.get("trader_investment_plan") and "Trader" not in agent_elapsed:
                 detected = "Trader"
-            elif chunk.get("investment_debate_state"):
+            # Guard: only active while investment debate is in progress.
+            # Both debate states are initialised as non-empty dicts so .get() is
+            # always truthy; without guards, investment_debate_state would block
+            # risk_debate_state from ever being reached via elif.
+            elif chunk.get("investment_debate_state") and "Research Manager" not in agent_elapsed:
                 d = chunk["investment_debate_state"]
                 bull = d.get("bull_history", "")
                 bear = d.get("bear_history", "")
                 judge = d.get("judge_decision", "")
-                if judge and "Research Manager" not in agent_elapsed:
+                if judge:
                     detected = "Research Manager"
                 elif bear and bear != _prev_debate.get("bear_history"):
                     detected = "Bear Researcher"
                 elif bull and bull != _prev_debate.get("bull_history"):
                     detected = "Bull Researcher"
                 _prev_debate = d
-            elif chunk.get("risk_debate_state"):
+            elif chunk.get("risk_debate_state") and "Portfolio Manager" not in agent_elapsed:
                 r = chunk["risk_debate_state"]
                 agg = r.get("aggressive_history", "")
                 con = r.get("conservative_history", "")
                 neu = r.get("neutral_history", "")
                 judge = r.get("judge_decision", "")
-                if judge and "Portfolio Manager" not in agent_elapsed:
+                if judge:
                     detected = "Portfolio Manager"
                 elif neu and neu != _prev_risk.get("neutral_history"):
                     detected = "Neutral Analyst"
