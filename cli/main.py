@@ -661,6 +661,10 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "fundamentals.md").write_text(final_state["fundamentals_report"], encoding="utf-8")
         analyst_parts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
+    # 0. Action Summary
+    if final_state.get("action_summary"):
+        sections.append(f"## Action Summary\n\n{final_state['action_summary']}")
+
     if analyst_parts:
         content = "\n\n".join(f"### {name}\n{text}" for name, text in analyst_parts)
         sections.append(f"## I. Analyst Team Reports\n\n{content}")
@@ -751,6 +755,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             "Bull Researcher", "Bear Researcher", "Research Manager",
             "Trader",
             "Aggressive Analyst", "Conservative Analyst", "Neutral Analyst", "Portfolio Manager",
+            "Summary",
         ]
         rows = []
         for key in AGENT_KEYS:
@@ -787,6 +792,13 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         header += timing_table + "\n\n"
 
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
+
+    try:
+        from cli.html_report import save_html_report
+        save_html_report(final_state, ticker, save_path, timing=timing, meta=meta)
+    except Exception:
+        pass
+
     return save_path / "complete_report.md"
 
 
@@ -1044,7 +1056,7 @@ def run_analysis(checkpoint: bool = False):
         def wrapper(*args, **kwargs):
             func(*args, **kwargs)
             timestamp, message_type, content = obj.messages[-1]
-            content = content.replace("\n", " ")  # Replace newlines with spaces
+            content = (content or "").replace("\n", " ")
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(f"{timestamp} [{message_type}] {content}\n")
         return wrapper
@@ -1054,8 +1066,11 @@ def run_analysis(checkpoint: bool = False):
         @wraps(func)
         def wrapper(*args, **kwargs):
             func(*args, **kwargs)
-            timestamp, tool_name, args = obj.tool_calls[-1]
-            args_str = ", ".join(f"{k}={v}" for k, v in args.items())
+            timestamp, tool_name, call_args = obj.tool_calls[-1]
+            if isinstance(call_args, dict):
+                args_str = ", ".join(f"{k}={v}" for k, v in call_args.items())
+            else:
+                args_str = str(call_args)
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(f"{timestamp} [Tool Call] {tool_name}({args_str})\n")
         return wrapper
@@ -1272,6 +1287,8 @@ def run_analysis(checkpoint: bool = False):
                 elif agg and agg != _prev_risk.get("aggressive_history"):
                     detected = "Aggressive Analyst"
                 _prev_risk = r
+            elif chunk.get("action_summary") and "Summary" not in agent_elapsed:
+                detected = "Summary"
 
             if detected:
                 agent_elapsed[detected] = agent_elapsed.get(detected, 0) + elapsed_since_last
@@ -1294,6 +1311,8 @@ def run_analysis(checkpoint: bool = False):
                     _next_agent = "Neutral Analyst"
                 elif detected == "Neutral Analyst":
                     _next_agent = "Portfolio Manager"
+                elif detected == "Portfolio Manager":
+                    _next_agent = "Summary"
                 if _next_agent:
                     stats_handler.set_current_agent(_next_agent)
 

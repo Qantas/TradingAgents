@@ -77,6 +77,7 @@ class GraphSetup:
         neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
         conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
         portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
+        summary_agent_node = create_summary_agent(self.quick_thinking_llm)
 
         # Create workflow
         workflow = StateGraph(AgentState)
@@ -98,6 +99,7 @@ class GraphSetup:
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
+        workflow.add_node("Summary", summary_agent_node)
 
         # Fan-out: launch all analysts in parallel from START
         for analyst_type in selected_analysts:
@@ -163,6 +165,7 @@ class GraphSetup:
             },
         )
 
-        workflow.add_edge("Portfolio Manager", END)
+        workflow.add_edge("Portfolio Manager", "Summary")
+        workflow.add_edge("Summary", END)
 
         return workflow
