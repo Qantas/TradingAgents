@@ -747,7 +747,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         total_llm = timing.get("_total_llm_seconds", 0)
         has_llm = total_llm > 0
         AGENT_KEYS = [
-            "Market Analyst", "Social Analyst", "News Analyst", "Fundamentals Analyst",
+            "Analyst Phase",
             "Bull Researcher", "Bear Researcher", "Research Manager",
             "Trader",
             "Aggressive Analyst", "Conservative Analyst", "Neutral Analyst", "Portfolio Manager",
@@ -1119,10 +1119,9 @@ def run_analysis(checkpoint: bool = False):
         _prev_debate = {}
         _prev_risk = {}
 
-        # Seed current_agent for LLM timing attribution: set to first expected agent
-        # so on_llm_start/on_llm_end calls are attributed correctly from the start.
-        _analyst_seq = [ANALYST_AGENT_NAMES[k] for k in selected_analyst_keys]
-        stats_handler.set_current_agent(_analyst_seq[0] if _analyst_seq else "Bull Researcher")
+        # Seed LLM timing attribution. Analysts run in parallel so they share one bucket.
+        _analyst_seq = []  # no longer used for timing; kept to avoid NameError below
+        stats_handler.set_current_agent("Analyst Phase" if selected_analyst_keys else "Bull Researcher")
 
         # Stream the analysis
         trace = []
@@ -1232,14 +1231,15 @@ def run_analysis(checkpoint: bool = False):
             elapsed_since_last = now - _agent_phase_start
             detected = None
 
-            if chunk.get("market_report") and "Market Analyst" not in agent_elapsed:
-                detected = "Market Analyst"
-            elif chunk.get("sentiment_report") and "Social Analyst" not in agent_elapsed:
-                detected = "Social Analyst"
-            elif chunk.get("news_report") and "News Analyst" not in agent_elapsed:
-                detected = "News Analyst"
-            elif chunk.get("fundamentals_report") and "Fundamentals Analyst" not in agent_elapsed:
-                detected = "Fundamentals Analyst"
+            # Analyst phase: all 4 run in parallel, so track as one bucket.
+            # Completed when every selected analyst report is present in the state.
+            _analyst_report_keys = {
+                "market": "market_report", "social": "sentiment_report",
+                "news": "news_report", "fundamentals": "fundamentals_report",
+            }
+            if "Analyst Phase" not in agent_elapsed and selected_analyst_keys:
+                if all(chunk.get(_analyst_report_keys[k]) for k in selected_analyst_keys):
+                    detected = "Analyst Phase"
             elif chunk.get("trader_investment_plan") and "Trader" not in agent_elapsed:
                 detected = "Trader"
             elif chunk.get("investment_debate_state"):
@@ -1275,9 +1275,8 @@ def run_analysis(checkpoint: bool = False):
                 _agent_phase_start = now
                 # Advance current_agent so subsequent LLM calls are attributed to next agent
                 _next_agent = None
-                if detected in _analyst_seq:
-                    _idx = _analyst_seq.index(detected)
-                    _next_agent = _analyst_seq[_idx + 1] if _idx + 1 < len(_analyst_seq) else "Bull Researcher"
+                if detected == "Analyst Phase":
+                    _next_agent = "Bull Researcher"
                 elif detected == "Bull Researcher":
                     _next_agent = "Bear Researcher"
                 elif detected == "Bear Researcher":
