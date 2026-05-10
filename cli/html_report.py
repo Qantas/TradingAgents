@@ -325,10 +325,11 @@ def _card(label: str, content: str, charts: Dict[str, str] = None, ticker: str =
 def save_html_report(
     final_state: dict,
     ticker: str,
-    save_path: Path,
+    save_path,
     timing: dict = None,
     meta: dict = None,
 ) -> Path:
+    save_path = Path(save_path)
     trade_date = final_state.get("trade_date", "")
     charts = _generate_charts(ticker, trade_date)
 
