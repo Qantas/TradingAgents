@@ -744,32 +744,40 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         mm, ss = divmod(int(total), 60)
         hh, mm = divmod(mm, 60)
         total_str = f"{hh:02d}:{mm:02d}:{ss:02d}"
+        total_llm = timing.get("_total_llm_seconds", 0)
+        has_llm = total_llm > 0
+        AGENT_KEYS = [
+            "Market Analyst", "Social Analyst", "News Analyst", "Fundamentals Analyst",
+            "Bull Researcher", "Bear Researcher", "Research Manager",
+            "Trader",
+            "Aggressive Analyst", "Conservative Analyst", "Neutral Analyst", "Portfolio Manager",
+        ]
         rows = []
-        AGENT_LABELS = {
-            "Market Analyst": "Market Analyst",
-            "Social Analyst": "Social Analyst",
-            "News Analyst": "News Analyst",
-            "Fundamentals Analyst": "Fundamentals Analyst",
-            "Bull Researcher": "Bull Researcher",
-            "Bear Researcher": "Bear Researcher",
-            "Research Manager": "Research Manager",
-            "Trader": "Trader",
-            "Aggressive Analyst": "Aggressive Analyst",
-            "Conservative Analyst": "Conservative Analyst",
-            "Neutral Analyst": "Neutral Analyst",
-            "Portfolio Manager": "Portfolio Manager",
-        }
-        for key, label in AGENT_LABELS.items():
-            if key in timing:
-                secs = timing[key]
-                m, s = divmod(int(secs), 60)
-                pct = (secs / total * 100) if total else 0
-                rows.append(f"| {label} | {m:02d}:{s:02d} | {pct:.1f}% |")
+        for key in AGENT_KEYS:
+            if key not in timing:
+                continue
+            secs = timing[key]
+            m, s = divmod(int(secs), 60)
+            pct = (secs / total * 100) if total else 0
+            if has_llm:
+                llm_secs = timing.get(f"llm_{key}", 0)
+                lm, ls = divmod(int(llm_secs), 60)
+                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% | {lm:02d}:{ls:02d} |")
+            else:
+                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% |")
+        if has_llm:
+            llm_mm, llm_ss = divmod(int(total_llm), 60)
+            llm_hh, llm_mm = divmod(llm_mm, 60)
+            llm_str = f"{llm_hh:02d}:{llm_mm:02d}:{llm_ss:02d}"
+            header_line = f"**Total elapsed: {total_str} | LLM generation: {llm_str}**\n\n"
+            col_header = "| Agent | Wall Clock | % of Total | LLM Time |\n|---|---|---|---|\n"
+        else:
+            header_line = f"**Total elapsed: {total_str}**\n\n"
+            col_header = "| Agent | Duration | % of Total |\n|---|---|---|\n"
         timing_table = (
             f"## Run Timing\n\n"
-            f"**Total elapsed: {total_str}**\n\n"
-            f"| Agent | Duration | % of Total |\n"
-            f"|---|---|---|\n"
+            + header_line
+            + col_header
             + "\n".join(rows) + "\n"
         )
         header += timing_table + "\n\n"
@@ -1103,24 +1111,18 @@ def run_analysis(checkpoint: bool = False):
         # (LLM tracking is handled separately via LLM constructor)
         args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
-        # Per-agent timing: map LangGraph node names to human labels
-        _AGENT_NODE_LABELS = {
-            "Market Analyst": "Market Analyst",
-            "Social Analyst": "Social Analyst",
-            "News Analyst": "News Analyst",
-            "Fundamentals Analyst": "Fundamentals Analyst",
-            "Bull Researcher": "Bull Researcher",
-            "Bear Researcher": "Bear Researcher",
-            "Research Manager": "Research Manager",
-            "Trader": "Trader",
-            "Aggressive Analyst": "Aggressive Analyst",
-            "Conservative Analyst": "Conservative Analyst",
-            "Neutral Analyst": "Neutral Analyst",
-            "Portfolio Manager": "Portfolio Manager",
-        }
+        # Per-agent timing: track elapsed time per agent by detecting state field changes.
+        # LangGraph streams state updates (not node names), so we infer agent completion
+        # from which state fields appear in each chunk.
         agent_elapsed = {}
         _agent_phase_start = start_time
-        _current_agent = None
+        _prev_debate = {}
+        _prev_risk = {}
+
+        # Seed current_agent for LLM timing attribution: set to first expected agent
+        # so on_llm_start/on_llm_end calls are attributed correctly from the start.
+        _analyst_seq = [ANALYST_AGENT_NAMES[k] for k in selected_analyst_keys]
+        stats_handler.set_current_agent(_analyst_seq[0] if _analyst_seq else "Bull Researcher")
 
         # Stream the analysis
         trace = []
@@ -1218,14 +1220,73 @@ def run_analysis(checkpoint: bool = False):
                         message_buffer.update_agent_status("Neutral Analyst", "completed")
                         message_buffer.update_agent_status("Portfolio Manager", "completed")
 
-            # Record per-agent timing when a tracked node's chunk arrives
+            # Record per-agent timing by detecting state field changes in chunk
             now = time.time()
-            for node_key in chunk:
-                if node_key in _AGENT_NODE_LABELS:
-                    label = _AGENT_NODE_LABELS[node_key]
-                    agent_elapsed[label] = agent_elapsed.get(label, 0) + (now - _agent_phase_start)
-                    _agent_phase_start = now
-                    _current_agent = label
+            elapsed_since_last = now - _agent_phase_start
+            detected = None
+
+            if chunk.get("market_report") and "Market Analyst" not in agent_elapsed:
+                detected = "Market Analyst"
+            elif chunk.get("sentiment_report") and "Social Analyst" not in agent_elapsed:
+                detected = "Social Analyst"
+            elif chunk.get("news_report") and "News Analyst" not in agent_elapsed:
+                detected = "News Analyst"
+            elif chunk.get("fundamentals_report") and "Fundamentals Analyst" not in agent_elapsed:
+                detected = "Fundamentals Analyst"
+            elif chunk.get("trader_investment_plan") and "Trader" not in agent_elapsed:
+                detected = "Trader"
+            elif chunk.get("investment_debate_state"):
+                d = chunk["investment_debate_state"]
+                bull = d.get("bull_history", "")
+                bear = d.get("bear_history", "")
+                judge = d.get("judge_decision", "")
+                if judge and "Research Manager" not in agent_elapsed:
+                    detected = "Research Manager"
+                elif bear and bear != _prev_debate.get("bear_history"):
+                    detected = "Bear Researcher"
+                elif bull and bull != _prev_debate.get("bull_history"):
+                    detected = "Bull Researcher"
+                _prev_debate = d
+            elif chunk.get("risk_debate_state"):
+                r = chunk["risk_debate_state"]
+                agg = r.get("aggressive_history", "")
+                con = r.get("conservative_history", "")
+                neu = r.get("neutral_history", "")
+                judge = r.get("judge_decision", "")
+                if judge and "Portfolio Manager" not in agent_elapsed:
+                    detected = "Portfolio Manager"
+                elif neu and neu != _prev_risk.get("neutral_history"):
+                    detected = "Neutral Analyst"
+                elif con and con != _prev_risk.get("conservative_history"):
+                    detected = "Conservative Analyst"
+                elif agg and agg != _prev_risk.get("aggressive_history"):
+                    detected = "Aggressive Analyst"
+                _prev_risk = r
+
+            if detected:
+                agent_elapsed[detected] = agent_elapsed.get(detected, 0) + elapsed_since_last
+                _agent_phase_start = now
+                # Advance current_agent so subsequent LLM calls are attributed to next agent
+                _next_agent = None
+                if detected in _analyst_seq:
+                    _idx = _analyst_seq.index(detected)
+                    _next_agent = _analyst_seq[_idx + 1] if _idx + 1 < len(_analyst_seq) else "Bull Researcher"
+                elif detected == "Bull Researcher":
+                    _next_agent = "Bear Researcher"
+                elif detected == "Bear Researcher":
+                    _next_agent = "Research Manager"
+                elif detected == "Research Manager":
+                    _next_agent = "Trader"
+                elif detected == "Trader":
+                    _next_agent = "Aggressive Analyst"
+                elif detected == "Aggressive Analyst":
+                    _next_agent = "Conservative Analyst"
+                elif detected == "Conservative Analyst":
+                    _next_agent = "Neutral Analyst"
+                elif detected == "Neutral Analyst":
+                    _next_agent = "Portfolio Manager"
+                if _next_agent:
+                    stats_handler.set_current_agent(_next_agent)
 
             # Update the display
             update_display(layout, stats_handler=stats_handler, start_time=start_time)
@@ -1266,6 +1327,10 @@ def run_analysis(checkpoint: bool = False):
         save_path = Path(save_path_str)
         try:
             agent_elapsed["_total_seconds"] = time.time() - start_time
+            final_stats = stats_handler.get_stats()
+            agent_elapsed["_total_llm_seconds"] = final_stats.get("total_llm_seconds", 0)
+            for agent, secs in final_stats.get("llm_timings", {}).items():
+                agent_elapsed[f"llm_{agent}"] = secs
             report_meta = {
                 "llm_provider": selections["llm_provider"],
                 "deep_thinker": selections["deep_thinker"],
