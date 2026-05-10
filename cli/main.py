@@ -761,7 +761,11 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             pct = (secs / total * 100) if total else 0
             if has_llm:
                 llm_secs = timing.get(f"llm_{key}")
-                llm_cell = f"{int(llm_secs)//60:02d}:{int(llm_secs)%60:02d}" if llm_secs else "-"
+                if llm_secs:
+                    llm_s = max(1, round(llm_secs))
+                    llm_cell = f"{llm_s // 60:02d}:{llm_s % 60:02d}"
+                else:
+                    llm_cell = "-"
                 rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% | {llm_cell} |")
             else:
                 rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% |")
@@ -1232,12 +1236,8 @@ def run_analysis(checkpoint: bool = False):
 
             # Analyst phase: all 4 run in parallel, so track as one bucket.
             # Completed when every selected analyst report is present in the state.
-            _analyst_report_keys = {
-                "market": "market_report", "social": "sentiment_report",
-                "news": "news_report", "fundamentals": "fundamentals_report",
-            }
             if "Analyst Phase" not in agent_elapsed and selected_analyst_keys:
-                if all(chunk.get(_analyst_report_keys[k]) for k in selected_analyst_keys):
+                if all(chunk.get(ANALYST_REPORT_MAP[k]) for k in selected_analyst_keys):
                     detected = "Analyst Phase"
             elif chunk.get("trader_investment_plan") and "Trader" not in agent_elapsed:
                 detected = "Trader"
