@@ -1,5 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
-from tradingagents.agents.utils.agent_utils import get_language_instruction
+from tradingagents.agents.utils.agent_utils import get_language_instruction, no_think_prefix
 
 
 def create_summary_agent(llm):
@@ -27,7 +27,7 @@ def create_summary_agent(llm):
         )
 
         system_message = (
-            "You are a financial report summarizer. Given outputs from multiple trading agents,"
+            no_think_prefix() + "You are a financial report summarizer. Given outputs from multiple trading agents,"
             " produce a concise action summary organized by decision-making hierarchy"
             " (most authoritative agents first).\n\n"
             "**Output format (markdown):**\n\n"

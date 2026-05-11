@@ -20,6 +20,18 @@ from tradingagents.agents.utils.news_data_tools import (
 )
 
 
+def no_think_prefix() -> str:
+    """Return '/no_think\\n' for Ollama providers to suppress Qwen3 extended thinking.
+
+    Other providers ignore this prefix, but to keep prompts clean we only emit
+    it when the configured provider is ollama.
+    """
+    from tradingagents.dataflows.config import get_config
+    if get_config().get("llm_provider", "").lower() == "ollama":
+        return "/no_think\n"
+    return ""
+
+
 def get_language_instruction() -> str:
     """Return a prompt instruction for the configured output language.
 
