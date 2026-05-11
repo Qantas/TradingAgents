@@ -75,6 +75,16 @@ class ResearchPlan(BaseModel):
             "the side with the stronger arguments."
         ),
     )
+
+    @field_validator("recommendation", mode="before")
+    @classmethod
+    def coerce_recommendation_case(cls, v):
+        if isinstance(v, str):
+            for member in PortfolioRating:
+                if v.strip().lower() == member.value.lower():
+                    return member.value
+        return v
+
     rationale: str = Field(
         description=(
             "Conversational summary of the key points from both sides of the "
@@ -118,6 +128,16 @@ class TraderProposal(BaseModel):
     action: TraderAction = Field(
         description="The transaction direction. Exactly one of Buy / Hold / Sell.",
     )
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def coerce_action_case(cls, v):
+        if isinstance(v, str):
+            for member in TraderAction:
+                if v.strip().lower() == member.value.lower():
+                    return member.value
+        return v
+
     reasoning: str = Field(
         description=(
             "The case for this action, anchored in the analysts' reports and "
@@ -190,6 +210,16 @@ class PortfolioDecision(BaseModel):
             "Underweight / Sell, picked based on the analysts' debate."
         ),
     )
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def coerce_rating_case(cls, v):
+        if isinstance(v, str):
+            for member in PortfolioRating:
+                if v.strip().lower() == member.value.lower():
+                    return member.value
+        return v
+
     executive_summary: str = Field(
         description=(
             "A concise action plan covering entry strategy, position sizing, "
