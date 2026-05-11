@@ -7,42 +7,26 @@ from langgraph.graph.message import add_messages
 
 # Researcher team state
 class InvestDebateState(TypedDict):
-    bull_history: Annotated[
-        str, "Bullish Conversation history"
-    ]  # Bullish Conversation history
-    bear_history: Annotated[
-        str, "Bearish Conversation history"
-    ]  # Bullish Conversation history
-    history: Annotated[str, "Conversation history"]  # Conversation history
-    current_response: Annotated[str, "Latest response"]  # Last response
-    judge_decision: Annotated[str, "Final judge decision"]  # Last response
-    count: Annotated[int, "Length of the current conversation"]  # Conversation length
+    bull_history: Annotated[str, "Bullish Conversation history"]
+    bear_history: Annotated[str, "Bearish Conversation history"]
+    history: Annotated[str, "Conversation history"]
+    current_bull_response: Annotated[str, "Latest Bull response"]
+    current_bear_response: Annotated[str, "Latest Bear response"]
+    judge_decision: Annotated[str, "Final judge decision"]
+    count: Annotated[int, "Number of completed debate rounds"]
 
 
 # Risk management team state
 class RiskDebateState(TypedDict):
-    aggressive_history: Annotated[
-        str, "Aggressive Agent's Conversation history"
-    ]  # Conversation history
-    conservative_history: Annotated[
-        str, "Conservative Agent's Conversation history"
-    ]  # Conversation history
-    neutral_history: Annotated[
-        str, "Neutral Agent's Conversation history"
-    ]  # Conversation history
-    history: Annotated[str, "Conversation history"]  # Conversation history
-    latest_speaker: Annotated[str, "Analyst that spoke last"]
-    current_aggressive_response: Annotated[
-        str, "Latest response by the aggressive analyst"
-    ]  # Last response
-    current_conservative_response: Annotated[
-        str, "Latest response by the conservative analyst"
-    ]  # Last response
-    current_neutral_response: Annotated[
-        str, "Latest response by the neutral analyst"
-    ]  # Last response
+    aggressive_history: Annotated[str, "Aggressive Agent's Conversation history"]
+    conservative_history: Annotated[str, "Conservative Agent's Conversation history"]
+    neutral_history: Annotated[str, "Neutral Agent's Conversation history"]
+    history: Annotated[str, "Conversation history"]
+    current_aggressive_response: Annotated[str, "Latest response by the aggressive analyst"]
+    current_conservative_response: Annotated[str, "Latest response by the conservative analyst"]
+    current_neutral_response: Annotated[str, "Latest response by the neutral analyst"]
     judge_decision: Annotated[str, "Judge's decision"]
-    count: Annotated[int, "Length of the current conversation"]  # Conversation length
+    count: Annotated[int, "Number of completed risk discussion rounds"]
 
 
 class AgentState(MessagesState):

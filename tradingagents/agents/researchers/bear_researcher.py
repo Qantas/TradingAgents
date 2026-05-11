@@ -5,8 +5,8 @@ def create_bear_researcher(llm):
         investment_debate_state = state["investment_debate_state"]
         history = investment_debate_state.get("history", "")
         bear_history = investment_debate_state.get("bear_history", "")
+        current_bull_response = investment_debate_state.get("current_bull_response", "")
 
-        current_response = investment_debate_state.get("current_response", "")
         market_research_report = state["market_report"]
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
@@ -29,22 +29,16 @@ Social media sentiment report: {sentiment_report}
 Latest world affairs news: {news_report}
 Company fundamentals report: {fundamentals_report}
 Conversation history of the debate: {history}
-Last bull argument: {current_response}
+Last bull argument: {current_bull_response}
 Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the stock.
 """
 
         response = llm.invoke(prompt)
-
         argument = f"Bear Analyst: {response.content}"
 
-        new_investment_debate_state = {
-            "history": history + "\n" + argument,
+        return {"investment_debate_state": {
             "bear_history": bear_history + "\n" + argument,
-            "bull_history": investment_debate_state.get("bull_history", ""),
-            "current_response": argument,
-            "count": investment_debate_state["count"] + 1,
-        }
-
-        return {"investment_debate_state": new_investment_debate_state}
+            "current_bear_response": argument,
+        }}
 
     return bear_node

@@ -29,7 +29,8 @@ class Propagator:
                     "bull_history": "",
                     "bear_history": "",
                     "history": "",
-                    "current_response": "",
+                    "current_bull_response": "",
+                    "current_bear_response": "",
                     "judge_decision": "",
                     "count": 0,
                 }
@@ -40,7 +41,6 @@ class Propagator:
                     "conservative_history": "",
                     "neutral_history": "",
                     "history": "",
-                    "latest_speaker": "",
                     "current_aggressive_response": "",
                     "current_conservative_response": "",
                     "current_neutral_response": "",

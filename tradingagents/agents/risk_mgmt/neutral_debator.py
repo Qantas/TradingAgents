@@ -31,23 +31,11 @@ Here is the current conversation history: {history} Here is the last response fr
 Engage actively by analyzing both sides critically, addressing weaknesses in the aggressive and conservative arguments to advocate for a more balanced approach. Challenge each of their points to illustrate why a moderate risk strategy might offer the best of both worlds, providing growth potential while safeguarding against extreme volatility. Focus on debating rather than simply presenting data, aiming to show that a balanced view can lead to the most reliable outcomes. Output conversationally as if you are speaking without any special formatting."""
 
         response = llm.invoke(prompt)
-
         argument = f"Neutral Analyst: {response.content}"
 
-        new_risk_debate_state = {
-            "history": history + "\n" + argument,
-            "aggressive_history": risk_debate_state.get("aggressive_history", ""),
-            "conservative_history": risk_debate_state.get("conservative_history", ""),
+        return {"risk_debate_state": {
             "neutral_history": neutral_history + "\n" + argument,
-            "latest_speaker": "Neutral",
-            "current_aggressive_response": risk_debate_state.get(
-                "current_aggressive_response", ""
-            ),
-            "current_conservative_response": risk_debate_state.get("current_conservative_response", ""),
             "current_neutral_response": argument,
-            "count": risk_debate_state["count"] + 1,
-        }
-
-        return {"risk_debate_state": new_risk_debate_state}
+        }}
 
     return neutral_node

@@ -79,6 +79,10 @@ class GraphSetup:
         portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
         summary_agent_node = create_summary_agent(self.quick_thinking_llm)
 
+        # Sync nodes — merge parallel debate outputs and advance round counter
+        research_debate_sync = create_research_debate_sync()
+        risk_debate_sync = create_risk_debate_sync()
+
         # Create workflow
         workflow = StateGraph(AgentState)
 
@@ -90,14 +94,20 @@ class GraphSetup:
             )
             workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
 
-        # Add other nodes
+        # Add debate nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
+        workflow.add_node("Research Debate Sync", research_debate_sync)
+        workflow.add_node("Research Round Router", lambda state: {})
         workflow.add_node("Research Manager", research_manager_node)
+
+        # Add risk nodes
         workflow.add_node("Trader", trader_node)
         workflow.add_node("Aggressive Analyst", aggressive_analyst)
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Conservative Analyst", conservative_analyst)
+        workflow.add_node("Risk Debate Sync", risk_debate_sync)
+        workflow.add_node("Risk Round Router", lambda state: {})
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
         workflow.add_node("Summary", summary_agent_node)
 
@@ -105,7 +115,7 @@ class GraphSetup:
         for analyst_type in selected_analysts:
             workflow.add_edge(START, f"{analyst_type.capitalize()} Analyst")
 
-        # Wire each analyst's ReAct loop; Msg Clear fans in to Bull Researcher
+        # Wire each analyst's ReAct loop; Msg Clear fans in to Research Round Router
         for analyst_type in selected_analysts:
             current_analyst = f"{analyst_type.capitalize()} Analyst"
             current_tools = f"tools_{analyst_type}"
@@ -117,50 +127,46 @@ class GraphSetup:
                 [current_tools, current_clear],
             )
             workflow.add_edge(current_tools, current_analyst)
-            # Fan-in: each analyst's clear node connects to Bull Researcher.
-            # LangGraph waits for all incoming edges before executing Bull Researcher.
-            workflow.add_edge(current_clear, "Bull Researcher")
+            # Fan-in: all clear nodes converge on Research Round Router
+            workflow.add_edge(current_clear, "Research Round Router")
 
-        # Add remaining edges
+        # Research debate: Research Round Router fans out to Bull + Bear in parallel
+        workflow.add_edge("Research Round Router", "Bull Researcher")
+        workflow.add_edge("Research Round Router", "Bear Researcher")
+
+        # Bull + Bear fan-in to Research Debate Sync
+        workflow.add_edge("Bull Researcher", "Research Debate Sync")
+        workflow.add_edge("Bear Researcher", "Research Debate Sync")
+
+        # After sync: loop back for another round or exit to Research Manager
         workflow.add_conditional_edges(
-            "Bull Researcher",
+            "Research Debate Sync",
             self.conditional_logic.should_continue_debate,
             {
-                "Bear Researcher": "Bear Researcher",
+                "Research Round Router": "Research Round Router",
                 "Research Manager": "Research Manager",
             },
         )
-        workflow.add_conditional_edges(
-            "Bear Researcher",
-            self.conditional_logic.should_continue_debate,
-            {
-                "Bull Researcher": "Bull Researcher",
-                "Research Manager": "Research Manager",
-            },
-        )
+
         workflow.add_edge("Research Manager", "Trader")
-        workflow.add_edge("Trader", "Aggressive Analyst")
+
+        # Risk debate: Trader → Risk Round Router → [Aggressive ‖ Conservative ‖ Neutral]
+        workflow.add_edge("Trader", "Risk Round Router")
+        workflow.add_edge("Risk Round Router", "Aggressive Analyst")
+        workflow.add_edge("Risk Round Router", "Conservative Analyst")
+        workflow.add_edge("Risk Round Router", "Neutral Analyst")
+
+        # All three risk analysts fan-in to Risk Debate Sync
+        workflow.add_edge("Aggressive Analyst", "Risk Debate Sync")
+        workflow.add_edge("Conservative Analyst", "Risk Debate Sync")
+        workflow.add_edge("Neutral Analyst", "Risk Debate Sync")
+
+        # After sync: loop back for another round or exit to Portfolio Manager
         workflow.add_conditional_edges(
-            "Aggressive Analyst",
+            "Risk Debate Sync",
             self.conditional_logic.should_continue_risk_analysis,
             {
-                "Conservative Analyst": "Conservative Analyst",
-                "Portfolio Manager": "Portfolio Manager",
-            },
-        )
-        workflow.add_conditional_edges(
-            "Conservative Analyst",
-            self.conditional_logic.should_continue_risk_analysis,
-            {
-                "Neutral Analyst": "Neutral Analyst",
-                "Portfolio Manager": "Portfolio Manager",
-            },
-        )
-        workflow.add_conditional_edges(
-            "Neutral Analyst",
-            self.conditional_logic.should_continue_risk_analysis,
-            {
-                "Aggressive Analyst": "Aggressive Analyst",
+                "Risk Round Router": "Risk Round Router",
                 "Portfolio Manager": "Portfolio Manager",
             },
         )

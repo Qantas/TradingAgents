@@ -1,5 +1,6 @@
 from .utils.agent_utils import create_msg_delete
 from .utils.agent_states import AgentState, InvestDebateState, RiskDebateState
+from .utils.sync_nodes import create_research_debate_sync, create_risk_debate_sync
 
 from .analysts.fundamentals_analyst import create_fundamentals_analyst
 from .analysts.market_analyst import create_market_analyst
@@ -24,6 +25,8 @@ __all__ = [
     "create_msg_delete",
     "InvestDebateState",
     "RiskDebateState",
+    "create_research_debate_sync",
+    "create_risk_debate_sync",
     "create_bear_researcher",
     "create_bull_researcher",
     "create_research_manager",
