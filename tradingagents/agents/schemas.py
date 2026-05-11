@@ -18,6 +18,7 @@ so that:
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Optional
 
@@ -54,6 +55,92 @@ class TraderAction(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# LLM output coercion helpers
+# ---------------------------------------------------------------------------
+
+_NONE_STRINGS = frozenset({
+    "none", "null", "n/a", "na", "nan", "undefined", "unknown",
+    "not applicable", "not available", "n.a.", "n.a", "-", "",
+})
+
+
+def _clean_str(v: str) -> str:
+    """Strip markdown formatting, surrounding quotes, and trailing punctuation."""
+    v = re.sub(r"[*_`]", "", v)       # bold/italic/code markers
+    v = v.strip("\"'")                 # surrounding quotes
+    v = v.rstrip(".,!?;:")             # trailing punctuation
+    return v.strip()
+
+
+def _coerce_enum(v, enum_class):
+    """Coerce a noisy LLM string to a canonical enum value.
+
+    Tries in order:
+    1. Exact case-insensitive match after stripping markdown/punctuation
+    2. First token match (handles "Buy recommendation", "Buy.")
+    3. Whole-word substring match (handles "Recommendation: Buy", "I recommend Overweight")
+    Falls through to the original value so Pydantic raises a clear error.
+    """
+    if not isinstance(v, str):
+        return v
+
+    cleaned = _clean_str(v)
+    lower = cleaned.lower()
+
+    # 1. Exact case-insensitive
+    for member in enum_class:
+        if lower == member.value.lower():
+            return member.value
+
+    # 2. First token
+    first = lower.split()[0] if lower.split() else lower
+    for member in enum_class:
+        if first == member.value.lower():
+            return member.value
+
+    # 3. Whole-word substring (e.g. "Recommendation: Overweight" or "strongly Overweight")
+    for member in enum_class:
+        pattern = r"\b" + re.escape(member.value.lower()) + r"\b"
+        if re.search(pattern, lower):
+            return member.value
+
+    return v  # let Pydantic raise with a meaningful error
+
+
+def _coerce_float(v):
+    """Coerce LLM-generated strings to float or None.
+
+    Handles: null-ish strings, currency prefixes ($€£¥), thousands commas,
+    approximation prefixes (~≈><), ranges (605-610 → 605), trailing
+    annotations ("605 (current price)"), and markdown formatting.
+    Returns None for Optional fields when parsing is impossible.
+    """
+    if v is None or isinstance(v, (int, float)):
+        return v
+    if not isinstance(v, str):
+        return v
+
+    stripped = v.strip()
+    if stripped.lower() in _NONE_STRINGS:
+        return None
+
+    cleaned = re.sub(r"[*_`\"']", "", stripped).strip()   # markdown / quotes
+    cleaned = re.sub(r"[$€£¥₩₹]", "", cleaned).strip()    # currency symbols
+    cleaned = re.sub(r"^[~≈><≤≥+\s]+", "", cleaned).strip()  # approx prefixes
+    cleaned = cleaned.replace(",", "")                      # thousands separator
+
+    # Take first numeric token; covers ranges ("605-610"), annotations ("605 USD")
+    m = re.match(r"^(-?\d+(?:\.\d+)?)", cleaned)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+
+    return None  # fallback for Optional[float] fields
+
+
+# ---------------------------------------------------------------------------
 # Research Manager
 # ---------------------------------------------------------------------------
 
@@ -75,16 +162,6 @@ class ResearchPlan(BaseModel):
             "the side with the stronger arguments."
         ),
     )
-
-    @field_validator("recommendation", mode="before")
-    @classmethod
-    def coerce_recommendation_case(cls, v):
-        if isinstance(v, str):
-            for member in PortfolioRating:
-                if v.strip().lower() == member.value.lower():
-                    return member.value
-        return v
-
     rationale: str = Field(
         description=(
             "Conversational summary of the key points from both sides of the "
@@ -98,6 +175,11 @@ class ResearchPlan(BaseModel):
             "including position sizing guidance consistent with the rating."
         ),
     )
+
+    @field_validator("recommendation", mode="before")
+    @classmethod
+    def coerce_recommendation(cls, v):
+        return _coerce_enum(v, PortfolioRating)
 
 
 def render_research_plan(plan: ResearchPlan) -> str:
@@ -128,16 +210,6 @@ class TraderProposal(BaseModel):
     action: TraderAction = Field(
         description="The transaction direction. Exactly one of Buy / Hold / Sell.",
     )
-
-    @field_validator("action", mode="before")
-    @classmethod
-    def coerce_action_case(cls, v):
-        if isinstance(v, str):
-            for member in TraderAction:
-                if v.strip().lower() == member.value.lower():
-                    return member.value
-        return v
-
     reasoning: str = Field(
         description=(
             "The case for this action, anchored in the analysts' reports and "
@@ -157,12 +229,15 @@ class TraderProposal(BaseModel):
         description="Optional sizing guidance, e.g. '5% of portfolio'.",
     )
 
+    @field_validator("action", mode="before")
+    @classmethod
+    def coerce_action(cls, v):
+        return _coerce_enum(v, TraderAction)
+
     @field_validator("entry_price", "stop_loss", mode="before")
     @classmethod
-    def coerce_none_string(cls, v):
-        if isinstance(v, str) and v.strip().lower() in ("none", "null", "n/a", ""):
-            return None
-        return v
+    def coerce_price(cls, v):
+        return _coerce_float(v)
 
 
 def render_trader_proposal(proposal: TraderProposal) -> str:
@@ -210,16 +285,6 @@ class PortfolioDecision(BaseModel):
             "Underweight / Sell, picked based on the analysts' debate."
         ),
     )
-
-    @field_validator("rating", mode="before")
-    @classmethod
-    def coerce_rating_case(cls, v):
-        if isinstance(v, str):
-            for member in PortfolioRating:
-                if v.strip().lower() == member.value.lower():
-                    return member.value
-        return v
-
     executive_summary: str = Field(
         description=(
             "A concise action plan covering entry strategy, position sizing, "
@@ -242,12 +307,15 @@ class PortfolioDecision(BaseModel):
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
 
+    @field_validator("rating", mode="before")
+    @classmethod
+    def coerce_rating(cls, v):
+        return _coerce_enum(v, PortfolioRating)
+
     @field_validator("price_target", mode="before")
     @classmethod
-    def coerce_none_string(cls, v):
-        if isinstance(v, str) and v.strip().lower() in ("none", "null", "n/a", ""):
-            return None
-        return v
+    def coerce_price_target(cls, v):
+        return _coerce_float(v)
 
 
 def render_pm_decision(decision: PortfolioDecision) -> str:
