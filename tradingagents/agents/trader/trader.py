@@ -49,6 +49,7 @@ def create_trader(llm):
             llm,
             messages,
             render_trader_proposal,
+            TraderProposal,
             "Trader",
         )
 

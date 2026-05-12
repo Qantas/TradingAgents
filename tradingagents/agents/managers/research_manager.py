@@ -44,6 +44,7 @@ Commit to a clear stance whenever the debate's strongest arguments warrant one; 
             llm,
             prompt,
             render_research_plan,
+            ResearchPlan,
             "Research Manager",
         )
 
