@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    ensure_user_message,
     get_balance_sheet,
     get_cashflow,
     get_fundamentals,
@@ -53,7 +54,7 @@ def create_fundamentals_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["fundamentals_messages"])
+        result = chain.invoke(ensure_user_message(state["fundamentals_messages"]))
 
         report = ""
 
