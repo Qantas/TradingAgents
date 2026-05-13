@@ -30,9 +30,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Appended to the prompt when we fall back to a plain-text call so the
-# model is nudged to emit parseable JSON even without tool-call enforcement.
-_JSON_HINT = (
+_JSON_HINT_BASE = (
     "\n\nRespond with a valid JSON object only — "
     "no markdown fences, no explanation, no text outside the JSON."
 )
@@ -55,14 +53,27 @@ def bind_structured(llm: Any, schema: type[T], agent_name: str) -> Optional[Any]
         return None
 
 
-def _append_json_hint(prompt: Any) -> Any:
+def _build_json_hint(schema: Optional[type[T]] = None) -> str:
+    """Build a JSON hint string, optionally including required field names from the schema."""
+    if schema is None:
+        return _JSON_HINT_BASE
+    required = [n for n, f in schema.model_fields.items() if f.is_required()]
+    optional = [n for n, f in schema.model_fields.items() if not f.is_required()]
+    fields = f"Required fields: {', '.join(required)}."
+    if optional:
+        fields += f" Optional fields: {', '.join(optional)}."
+    return f"\n\n{fields}{_JSON_HINT_BASE}"
+
+
+def _append_json_hint(prompt: Any, schema: Optional[type[T]] = None) -> Any:
     """Append the JSON hint to a string prompt or to the last message in a list."""
+    hint = _build_json_hint(schema)
     if isinstance(prompt, str):
-        return prompt + _JSON_HINT
+        return prompt + hint
     if isinstance(prompt, list) and prompt:
         last = prompt[-1]
         if isinstance(last, dict) and "content" in last:
-            return prompt[:-1] + [{**last, "content": last["content"] + _JSON_HINT}]
+            return prompt[:-1] + [{**last, "content": last["content"] + hint}]
     return prompt
 
 
@@ -122,7 +133,7 @@ def invoke_structured_or_freetext(
             )
 
     # Plain-text call with a JSON nudge appended
-    hinted_prompt = _append_json_hint(prompt)
+    hinted_prompt = _append_json_hint(prompt, schema)
     response = plain_llm.invoke(hinted_prompt)
     raw = response.content
 

@@ -22,7 +22,7 @@ import re
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +63,50 @@ _NONE_STRINGS = frozenset({
     "not applicable", "not available", "n.a.", "n.a", "-", "",
 })
 
+# Financial synonym → canonical enum value for PortfolioRating
+_PORTFOLIO_SYNONYMS: dict[str, str] = {
+    "accumulate": "Buy",
+    "outperform": "Buy",
+    "strong buy": "Buy",
+    "long": "Buy",
+    "positive": "Overweight",
+    "add": "Overweight",
+    "increase": "Overweight",
+    "market perform": "Hold",
+    "market weight": "Hold",
+    "in line": "Hold",
+    "neutral": "Hold",
+    "reduce": "Underweight",
+    "trim": "Underweight",
+    "underperform": "Underweight",
+    "avoid": "Sell",
+    "exit": "Sell",
+    "short": "Sell",
+    "strong sell": "Sell",
+}
+
+# Financial synonym → canonical enum value for TraderAction (3-tier)
+_TRADER_SYNONYMS: dict[str, str] = {
+    "accumulate": "Buy",
+    "long": "Buy",
+    "purchase": "Buy",
+    "acquire": "Buy",
+    "outperform": "Buy",
+    "strong buy": "Buy",
+    "overweight": "Buy",
+    "short": "Sell",
+    "exit": "Sell",
+    "divest": "Sell",
+    "reduce": "Sell",
+    "trim": "Sell",
+    "avoid": "Sell",
+    "underweight": "Sell",
+    "neutral": "Hold",
+    "maintain": "Hold",
+    "keep": "Hold",
+    "market perform": "Hold",
+}
+
 
 def _clean_str(v: str) -> str:
     """Strip markdown formatting, surrounding quotes, and trailing punctuation."""
@@ -72,13 +116,14 @@ def _clean_str(v: str) -> str:
     return v.strip()
 
 
-def _coerce_enum(v, enum_class):
+def _coerce_enum(v, enum_class, synonyms: Optional[dict] = None):
     """Coerce a noisy LLM string to a canonical enum value.
 
     Tries in order:
     1. Exact case-insensitive match after stripping markdown/punctuation
     2. First token match (handles "Buy recommendation", "Buy.")
     3. Whole-word substring match (handles "Recommendation: Buy", "I recommend Overweight")
+    4. Synonym map lookup (handles financial jargon like "Accumulate" → "Buy")
     Falls through to the original value so Pydantic raises a clear error.
     """
     if not isinstance(v, str):
@@ -103,6 +148,16 @@ def _coerce_enum(v, enum_class):
         pattern = r"\b" + re.escape(member.value.lower()) + r"\b"
         if re.search(pattern, lower):
             return member.value
+
+    # 4. Synonym map — financial jargon and model-specific phrasing
+    if synonyms:
+        if lower in synonyms:
+            return synonyms[lower]
+        if first in synonyms:
+            return synonyms[first]
+        for syn, canonical in synonyms.items():
+            if syn in lower:
+                return canonical
 
     return v  # let Pydantic raise with a meaningful error
 
@@ -176,10 +231,32 @@ class ResearchPlan(BaseModel):
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def remap_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        # rationale aliases
+        for alias in ("reasoning", "analysis", "justification", "explanation"):
+            if alias in data and "rationale" not in data:
+                data["rationale"] = data.pop(alias)
+                break
+        # strategic_actions aliases
+        for alias in ("strategy", "actions", "recommendations", "steps", "plan", "action_plan"):
+            if alias in data and "strategic_actions" not in data:
+                data["strategic_actions"] = data.pop(alias)
+                break
+        # recommendation aliases
+        for alias in ("rating", "decision", "verdict", "signal"):
+            if alias in data and "recommendation" not in data:
+                data["recommendation"] = data.pop(alias)
+                break
+        return data
+
     @field_validator("recommendation", mode="before")
     @classmethod
     def coerce_recommendation(cls, v):
-        return _coerce_enum(v, PortfolioRating)
+        return _coerce_enum(v, PortfolioRating, _PORTFOLIO_SYNONYMS)
 
 
 def render_research_plan(plan: ResearchPlan) -> str:
@@ -229,10 +306,27 @@ class TraderProposal(BaseModel):
         description="Optional sizing guidance, e.g. '5% of portfolio'.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def remap_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        # action aliases
+        for alias in ("recommendation", "direction", "transaction", "signal", "trade"):
+            if alias in data and "action" not in data:
+                data["action"] = data.pop(alias)
+                break
+        # reasoning aliases
+        for alias in ("rationale", "analysis", "justification", "explanation", "rationale"):
+            if alias in data and "reasoning" not in data:
+                data["reasoning"] = data.pop(alias)
+                break
+        return data
+
     @field_validator("action", mode="before")
     @classmethod
     def coerce_action(cls, v):
-        return _coerce_enum(v, TraderAction)
+        return _coerce_enum(v, TraderAction, _TRADER_SYNONYMS)
 
     @field_validator("entry_price", "stop_loss", mode="before")
     @classmethod
@@ -307,10 +401,32 @@ class PortfolioDecision(BaseModel):
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def remap_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        # rating aliases
+        for alias in ("recommendation", "decision", "verdict", "signal", "action"):
+            if alias in data and "rating" not in data:
+                data["rating"] = data.pop(alias)
+                break
+        # executive_summary aliases
+        for alias in ("summary", "overview", "conclusion", "brief"):
+            if alias in data and "executive_summary" not in data:
+                data["executive_summary"] = data.pop(alias)
+                break
+        # investment_thesis aliases
+        for alias in ("thesis", "analysis", "reasoning", "rationale", "justification"):
+            if alias in data and "investment_thesis" not in data:
+                data["investment_thesis"] = data.pop(alias)
+                break
+        return data
+
     @field_validator("rating", mode="before")
     @classmethod
     def coerce_rating(cls, v):
-        return _coerce_enum(v, PortfolioRating)
+        return _coerce_enum(v, PortfolioRating, _PORTFOLIO_SYNONYMS)
 
     @field_validator("price_target", mode="before")
     @classmethod
