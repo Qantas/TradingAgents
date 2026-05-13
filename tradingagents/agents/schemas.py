@@ -163,6 +163,24 @@ def _coerce_enum(v, enum_class, synonyms: Optional[dict] = None):
     return v  # let Pydantic raise with a meaningful error
 
 
+def _coerce_str(v) -> str:
+    """Coerce LLM-generated value to a plain string.
+
+    Handles lists (bullet-joined), dicts (JSON-dumped), and anything else
+    that a model might return instead of a plain prose string.
+    """
+    if isinstance(v, str):
+        return v
+    if isinstance(v, list):
+        parts = []
+        for item in v:
+            parts.append(str(item) if not isinstance(item, dict) else json.dumps(item, indent=2))
+        return "\n".join(parts)
+    if isinstance(v, dict):
+        return json.dumps(v, indent=2)
+    return str(v)
+
+
 def _coerce_float(v):
     """Coerce LLM-generated strings to float or None.
 
@@ -263,6 +281,11 @@ class ResearchPlan(BaseModel):
                 break
         return data
 
+    @field_validator("rationale", "strategic_actions", mode="before")
+    @classmethod
+    def coerce_prose(cls, v):
+        return _coerce_str(v)
+
     @field_validator("recommendation", mode="before")
     @classmethod
     def coerce_recommendation(cls, v):
@@ -332,6 +355,11 @@ class TraderProposal(BaseModel):
                 data["reasoning"] = data.pop(alias)
                 break
         return data
+
+    @field_validator("reasoning", "position_sizing", mode="before")
+    @classmethod
+    def coerce_prose(cls, v):
+        return _coerce_str(v) if v is not None else v
 
     @field_validator("action", mode="before")
     @classmethod
@@ -438,6 +466,11 @@ class PortfolioDecision(BaseModel):
                 data["investment_thesis"] = data.pop(alias)
                 break
         return data
+
+    @field_validator("executive_summary", "investment_thesis", "time_horizon", mode="before")
+    @classmethod
+    def coerce_prose(cls, v):
+        return _coerce_str(v) if v is not None else v
 
     @field_validator("rating", mode="before")
     @classmethod
