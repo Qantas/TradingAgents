@@ -32,6 +32,22 @@ class NormalizedChatOpenAI(ChatOpenAI):
         return super().with_structured_output(schema, method=method, **kwargs)
 
 
+class OllamaChatOpenAI(NormalizedChatOpenAI):
+    """Ollama-specific override: use json_mode instead of function_calling.
+
+    qwen3 (and most Ollama models) don't reliably honour tool/function calls,
+    causing ``with_structured_output(method="function_calling")`` to always
+    fail and trigger a costly second plain-text call. json_mode sends
+    ``response_format={"type":"json_object"}`` which Ollama handles natively —
+    the model outputs JSON in one call and our Pydantic validators do the rest.
+    """
+
+    def with_structured_output(self, schema, *, method=None, **kwargs):
+        if method is None:
+            method = "json_mode"
+        return super().with_structured_output(schema, method=method, **kwargs)
+
+
 def _input_to_messages(input_: Any) -> list:
     """Normalise a langchain LLM input to a list of message objects.
 
@@ -169,9 +185,14 @@ class OpenAIClient(BaseLLMClient):
         if self.provider == "openai":
             llm_kwargs["use_responses_api"] = True
 
-        # DeepSeek's thinking-mode quirks live in their own subclass so the
-        # base NormalizedChatOpenAI stays free of provider-specific branches.
-        chat_cls = DeepSeekChatOpenAI if self.provider == "deepseek" else NormalizedChatOpenAI
+        # Provider-specific subclasses handle quirks (DeepSeek: tool_choice disabled;
+        # Ollama: json_mode instead of function_calling for structured output).
+        if self.provider == "deepseek":
+            chat_cls = DeepSeekChatOpenAI
+        elif self.provider == "ollama":
+            chat_cls = OllamaChatOpenAI
+        else:
+            chat_cls = NormalizedChatOpenAI
         return chat_cls(**llm_kwargs)
 
     def validate_model(self) -> bool:
