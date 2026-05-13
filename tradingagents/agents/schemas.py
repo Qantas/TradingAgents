@@ -18,6 +18,7 @@ so that:
 
 from __future__ import annotations
 
+import json
 import re
 from enum import Enum
 from typing import Optional
@@ -237,14 +238,23 @@ class ResearchPlan(BaseModel):
         if not isinstance(data, dict):
             return data
         # rationale aliases
-        for alias in ("reasoning", "analysis", "justification", "explanation"):
+        for alias in (
+            "debate_evaluation", "evaluation", "assessment", "summary",
+            "reasoning", "analysis", "justification", "explanation",
+        ):
             if alias in data and "rationale" not in data:
                 data["rationale"] = data.pop(alias)
                 break
-        # strategic_actions aliases
-        for alias in ("strategy", "actions", "recommendations", "steps", "plan", "action_plan"):
+        # strategic_actions aliases — coerce nested dicts to JSON string
+        for alias in (
+            "investment_plan", "trading_plan", "execution_plan",
+            "strategy", "actions", "recommendations", "steps", "plan", "action_plan",
+        ):
             if alias in data and "strategic_actions" not in data:
-                data["strategic_actions"] = data.pop(alias)
+                val = data.pop(alias)
+                data["strategic_actions"] = (
+                    json.dumps(val, indent=2) if isinstance(val, dict) else str(val)
+                )
                 break
         # recommendation aliases
         for alias in ("rating", "decision", "verdict", "signal"):
@@ -412,12 +422,18 @@ class PortfolioDecision(BaseModel):
                 data["rating"] = data.pop(alias)
                 break
         # executive_summary aliases
-        for alias in ("summary", "overview", "conclusion", "brief"):
+        for alias in (
+            "trading_decision", "summary", "overview", "conclusion", "brief",
+            "action_plan", "trade_decision", "decision_summary",
+        ):
             if alias in data and "executive_summary" not in data:
                 data["executive_summary"] = data.pop(alias)
                 break
         # investment_thesis aliases
-        for alias in ("thesis", "analysis", "reasoning", "rationale", "justification"):
+        for alias in (
+            "portfolio_manager_synthesis", "thesis", "analysis", "reasoning",
+            "rationale", "justification", "synthesis", "detailed_analysis",
+        ):
             if alias in data and "investment_thesis" not in data:
                 data["investment_thesis"] = data.pop(alias)
                 break
