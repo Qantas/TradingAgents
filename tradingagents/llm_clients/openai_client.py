@@ -33,18 +33,22 @@ class NormalizedChatOpenAI(ChatOpenAI):
 
 
 class OllamaChatOpenAI(NormalizedChatOpenAI):
-    """Ollama-specific override: use json_mode instead of function_calling.
+    """Ollama/LM Studio override: use json_schema instead of function_calling.
 
-    qwen3 (and most Ollama models) don't reliably honour tool/function calls,
-    causing ``with_structured_output(method="function_calling")`` to always
-    fail and trigger a costly second plain-text call. json_mode sends
-    ``response_format={"type":"json_object"}`` which Ollama handles natively —
-    the model outputs JSON in one call and our Pydantic validators do the rest.
+    json_schema sends ``response_format={"type":"json_schema","json_schema":{...}}``
+    which grammar-constrains the model to produce output that matches the Pydantic
+    schema exactly — including field names and types.  This prevents the field-name
+    drift (e.g. "debate_evaluation" instead of "rationale") that would otherwise
+    cause a costly second plain-text fallback call.
+
+    Ollama 0.5+ supports json_schema.  If the model or server rejects it, the
+    invocation fails and invoke_structured_or_freetext falls back to free-text
+    generation automatically — no worse than before.
     """
 
     def with_structured_output(self, schema, *, method=None, **kwargs):
         if method is None:
-            method = "json_mode"
+            method = "json_schema"
         return super().with_structured_output(schema, method=method, **kwargs)
 
 

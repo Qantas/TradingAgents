@@ -77,6 +77,81 @@ def _append_json_hint(prompt: Any, schema: Optional[type[T]] = None) -> Any:
     return prompt
 
 
+def _remap_fields_generic(data: dict, model_fields: dict) -> dict:
+    """Remap unknown LLM output keys to canonical Pydantic field names.
+
+    Two-phase strategy so callers never need hand-coded alias lists:
+
+    Phase 1 — word-overlap: tokenize the incoming key against each canonical
+    field name *and* its description text.  Best match above a 0.25 threshold
+    wins (e.g. "debate_evaluation" → "rationale" because "debate" appears in
+    rationale's description).
+
+    Phase 2 — length heuristic: remaining unmatched *required* string fields
+    are paired with alien string values sorted by length — longer values go to
+    the field whose description is also longer (prose fields get prose values).
+    """
+    def _words(s: str) -> set[str]:
+        return {w for w in re.split(r"\W+", s.lower()) if len(w) > 2}
+
+    canonical = set(model_fields.keys())
+    alien_keys = [k for k in data if k not in canonical]
+    free_fields = list(canonical - (canonical & set(data.keys())))
+
+    if not alien_keys or not free_fields:
+        return data
+
+    result = dict(data)
+    remapped: set[str] = set()
+    taken: set[str] = set()
+
+    def _vocab(fname: str) -> set[str]:
+        return _words(fname) | _words(model_fields[fname].description or "")
+
+    # Phase 1: word-overlap scoring
+    for key in alien_keys:
+        key_words = _words(key)
+        if not key_words:
+            continue
+        best_field, best_score = None, 0.0
+        for f in free_fields:
+            if f in taken:
+                continue
+            common = key_words & _vocab(f)
+            if not common:
+                continue
+            score = len(common) / max(len(key_words), len(_words(f)) or 1)
+            if score > best_score:
+                best_score, best_field = score, f
+        if best_field and best_score >= 0.25:
+            result[best_field] = result.pop(key)
+            remapped.add(key)
+            taken.add(best_field)
+
+    # Phase 2: length-based assignment for still-unmatched required fields
+    # Handles any value type — dicts/lists land on string fields where
+    # field_validators (_coerce_str) will convert them.
+    unremapped = [k for k in alien_keys if k not in remapped and k in result]
+    req_free = [
+        f for f in free_fields
+        if f not in taken and model_fields[f].is_required()
+    ]
+    if not unremapped or not req_free:
+        return result
+
+    # Sort: longer string values first; non-strings go last (they can't use length heuristic)
+    def _value_len(k: str) -> int:
+        v = result.get(k)
+        return len(str(v)) if isinstance(v, str) else -1
+
+    unremapped.sort(key=_value_len, reverse=True)
+    req_free.sort(key=lambda f: len(model_fields[f].description or ""), reverse=True)
+    for key, field in zip(unremapped, req_free):
+        result[field] = result.pop(key)
+
+    return result
+
+
 def _extract_json(text: str, schema: type[T]) -> T:
     """Extract the first JSON object from a noisy LLM response and parse it.
 
@@ -88,16 +163,21 @@ def _extract_json(text: str, schema: type[T]) -> T:
     # Strip thinking tags
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
+    def _parse(raw_json: str) -> T:
+        data = json.loads(raw_json)
+        data = _remap_fields_generic(data, schema.model_fields)
+        return schema(**data)
+
     # Try markdown code block first (most common when model ignores JSON-only instruction)
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
-        return schema(**json.loads(m.group(1)))
+        return _parse(m.group(1))
 
     # Find outermost { ... }
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end > start:
-        return schema(**json.loads(text[start:end + 1]))
+        return _parse(text[start:end + 1])
 
     raise ValueError("no JSON object found in response")
 

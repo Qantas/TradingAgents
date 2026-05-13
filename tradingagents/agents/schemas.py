@@ -25,6 +25,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from tradingagents.agents.utils.structured import _remap_fields_generic
+
 
 # ---------------------------------------------------------------------------
 # Shared rating types
@@ -255,31 +257,7 @@ class ResearchPlan(BaseModel):
     def remap_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        # rationale aliases
-        for alias in (
-            "debate_evaluation", "evaluation", "assessment", "summary",
-            "reasoning", "analysis", "justification", "explanation",
-        ):
-            if alias in data and "rationale" not in data:
-                data["rationale"] = data.pop(alias)
-                break
-        # strategic_actions aliases — coerce nested dicts to JSON string
-        for alias in (
-            "investment_plan", "trading_plan", "execution_plan",
-            "strategy", "actions", "recommendations", "steps", "plan", "action_plan",
-        ):
-            if alias in data and "strategic_actions" not in data:
-                val = data.pop(alias)
-                data["strategic_actions"] = (
-                    json.dumps(val, indent=2) if isinstance(val, dict) else str(val)
-                )
-                break
-        # recommendation aliases
-        for alias in ("rating", "decision", "verdict", "signal"):
-            if alias in data and "recommendation" not in data:
-                data["recommendation"] = data.pop(alias)
-                break
-        return data
+        return _remap_fields_generic(data, cls.model_fields)
 
     @field_validator("rationale", "strategic_actions", mode="before")
     @classmethod
@@ -344,17 +322,7 @@ class TraderProposal(BaseModel):
     def remap_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        # action aliases
-        for alias in ("recommendation", "direction", "transaction", "signal", "trade"):
-            if alias in data and "action" not in data:
-                data["action"] = data.pop(alias)
-                break
-        # reasoning aliases
-        for alias in ("rationale", "analysis", "justification", "explanation", "rationale"):
-            if alias in data and "reasoning" not in data:
-                data["reasoning"] = data.pop(alias)
-                break
-        return data
+        return _remap_fields_generic(data, cls.model_fields)
 
     @field_validator("reasoning", "position_sizing", mode="before")
     @classmethod
@@ -444,28 +412,7 @@ class PortfolioDecision(BaseModel):
     def remap_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        # rating aliases
-        for alias in ("recommendation", "decision", "verdict", "signal", "action"):
-            if alias in data and "rating" not in data:
-                data["rating"] = data.pop(alias)
-                break
-        # executive_summary aliases
-        for alias in (
-            "trading_decision", "summary", "overview", "conclusion", "brief",
-            "action_plan", "trade_decision", "decision_summary",
-        ):
-            if alias in data and "executive_summary" not in data:
-                data["executive_summary"] = data.pop(alias)
-                break
-        # investment_thesis aliases
-        for alias in (
-            "portfolio_manager_synthesis", "thesis", "analysis", "reasoning",
-            "rationale", "justification", "synthesis", "detailed_analysis",
-        ):
-            if alias in data and "investment_thesis" not in data:
-                data["investment_thesis"] = data.pop(alias)
-                break
-        return data
+        return _remap_fields_generic(data, cls.model_fields)
 
     @field_validator("executive_summary", "investment_thesis", "time_horizon", mode="before")
     @classmethod
