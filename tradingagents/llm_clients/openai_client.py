@@ -133,6 +133,7 @@ _PROVIDER_CONFIG = {
     "glm": ("https://api.z.ai/api/paas/v4/", "ZHIPU_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
+    "lmstudio": ("http://localhost:1234/v1", None),
 }
 
 
@@ -171,7 +172,7 @@ class OpenAIClient(BaseLLMClient):
                 if api_key:
                     llm_kwargs["api_key"] = api_key
             else:
-                llm_kwargs["api_key"] = "ollama"
+                llm_kwargs["api_key"] = self.provider  # "ollama" or "lmstudio"
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
@@ -189,7 +190,7 @@ class OpenAIClient(BaseLLMClient):
         # Ollama: json_mode instead of function_calling for structured output).
         if self.provider == "deepseek":
             chat_cls = DeepSeekChatOpenAI
-        elif self.provider == "ollama":
+        elif self.provider in ("ollama", "lmstudio"):
             chat_cls = OllamaChatOpenAI
         else:
             chat_cls = NormalizedChatOpenAI

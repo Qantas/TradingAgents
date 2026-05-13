@@ -101,6 +101,18 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
+    "lmstudio": {
+        "quick": [
+            ("Qwen3.6 27B NVFP4 (MLX, local)", "mlx-community/Qwen3.6-27B-nvfp4"),
+            ("Qwen3.6 35B-A3B NVFP4 (MLX, MoE, local)", "mlx-community/Qwen3.6-35B-A3B-nvfp4"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("Qwen3.6 35B-A3B NVFP4 (MLX, MoE, local)", "mlx-community/Qwen3.6-35B-A3B-nvfp4"),
+            ("Qwen3.6 27B NVFP4 (MLX, local)", "mlx-community/Qwen3.6-27B-nvfp4"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     # OpenRouter: fetched dynamically. Azure: any deployed model name.
     "ollama": {
         "quick": [
