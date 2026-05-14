@@ -732,13 +732,16 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         quick = meta.get("shallow_thinker", "")
         deep = meta.get("deep_thinker", "")
         provider = meta.get("llm_provider", "")
+        from tradingagents.agents.utils.agent_utils import no_think_prefix
+        thinking_status = "OFF (/no_think)" if no_think_prefix() else "ON"
         header = (
             f"# Trading Analysis Report: {ticker}\n\n"
             f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n"
             f"Provider: {provider}  \n"
             f"Deep Thinker: {deep}  \n"
             f"Quick Thinker: {quick}  \n"
-            f"Research Depth: {depth_label} (debate rounds: {depth_rounds})  \n\n"
+            f"Research Depth: {depth_label} (debate rounds: {depth_rounds})  \n"
+            f"Thinking: {thinking_status}  \n\n"
         )
     else:
         header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
