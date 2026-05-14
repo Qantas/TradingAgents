@@ -44,7 +44,7 @@ def no_think_prefix() -> str:
     it when the configured provider is ollama.
     """
     from tradingagents.dataflows.config import get_config
-    if get_config().get("llm_provider", "").lower() == "ollama":
+    if get_config().get("llm_provider", "").lower() in ("ollama", "lmstudio"):
         return "/no_think\n"
     return ""
 
