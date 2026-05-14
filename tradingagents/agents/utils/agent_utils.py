@@ -33,15 +33,14 @@ def ensure_user_message(messages: list) -> list:
     if get_config().get("llm_provider", "").lower() != "lmstudio":
         return messages
     if not messages or not isinstance(messages[0], HumanMessage):
-        return [HumanMessage(content="Begin your analysis.")] + list(messages)
+        return [HumanMessage(content=f"{no_think_prefix()}Begin your analysis.")] + list(messages)
     return messages
 
 
 def no_think_prefix() -> str:
-    """Return '/no_think\\n' for Ollama providers to suppress Qwen3 extended thinking.
+    """Return '/no_think\\n' for local providers (ollama, lmstudio) to suppress Qwen3 thinking.
 
-    Other providers ignore this prefix, but to keep prompts clean we only emit
-    it when the configured provider is ollama.
+    Cloud providers are unaffected.
     """
     from tradingagents.dataflows.config import get_config
     if get_config().get("llm_provider", "").lower() in ("ollama", "lmstudio"):
