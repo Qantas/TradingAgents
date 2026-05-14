@@ -760,6 +760,17 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             "Aggressive Analyst", "Conservative Analyst", "Neutral Analyst", "Portfolio Manager",
             "Summary",
         ]
+        from tradingagents.agents.utils.agent_utils import no_think_prefix
+        from tradingagents.dataflows.config import get_config
+        _provider = get_config().get("llm_provider", "").lower()
+        _no_think = bool(no_think_prefix())
+        # Analyst Phase uses ensure_user_message for lmstudio; all others use no_think_prefix in prompt
+        _analyst_off = _no_think and _provider == "lmstudio"
+        def _thinking(key):
+            if key == "Analyst Phase":
+                return "OFF" if _analyst_off else "ON"
+            return "OFF" if _no_think else "ON"
+
         rows = []
         for key in AGENT_KEYS:
             if key not in timing:
@@ -767,6 +778,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             secs = timing[key]
             m, s = divmod(int(secs), 60)
             pct = (secs / total * 100) if total else 0
+            thinking_cell = _thinking(key)
             if has_llm:
                 llm_secs = timing.get(f"llm_{key}")
                 if llm_secs:
@@ -774,18 +786,18 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
                     llm_cell = f"{llm_s // 60:02d}:{llm_s % 60:02d}"
                 else:
                     llm_cell = "-"
-                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% | {llm_cell} |")
+                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% | {llm_cell} | {thinking_cell} |")
             else:
-                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% |")
+                rows.append(f"| {key} | {m:02d}:{s:02d} | {pct:.1f}% | {thinking_cell} |")
         if has_llm:
             llm_mm, llm_ss = divmod(int(total_llm), 60)
             llm_hh, llm_mm = divmod(llm_mm, 60)
             llm_str = f"{llm_hh:02d}:{llm_mm:02d}:{llm_ss:02d}"
             header_line = f"**Total elapsed: {total_str} | LLM generation: {llm_str}**\n\n"
-            col_header = "| Agent | Wall Clock | % of Total | LLM Time |\n|---|---|---|---|\n"
+            col_header = "| Agent | Wall Clock | % of Total | LLM Time | Thinking |\n|---|---|---|---|---|\n"
         else:
             header_line = f"**Total elapsed: {total_str}**\n\n"
-            col_header = "| Agent | Duration | % of Total |\n|---|---|---|\n"
+            col_header = "| Agent | Duration | % of Total | Thinking |\n|---|---|---|---|\n"
         timing_table = (
             f"## Run Timing\n\n"
             + header_line
