@@ -761,14 +761,8 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             "Summary",
         ]
         from tradingagents.agents.utils.agent_utils import no_think_prefix
-        from tradingagents.dataflows.config import get_config
-        _provider = get_config().get("llm_provider", "").lower()
         _no_think = bool(no_think_prefix())
-        # Analyst Phase uses ensure_user_message for lmstudio; all others use no_think_prefix in prompt
-        _analyst_off = _no_think and _provider == "lmstudio"
         def _thinking(key):
-            if key == "Analyst Phase":
-                return "OFF" if _analyst_off else "ON"
             return "OFF" if _no_think else "ON"
 
         rows = []
