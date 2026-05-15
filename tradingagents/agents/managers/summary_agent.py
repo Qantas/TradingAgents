@@ -3,8 +3,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.prompts import ChatPromptTemplate
 from tradingagents.agents.utils.agent_utils import get_language_instruction, no_think_prefix
 
+# Only the tail of each section is needed — all agent types put their final verdict last.
+# 1500 chars ≈ 375 tokens, well within prefill budget for a 35B model.
+_TAIL_CHARS = 1500
+# 400 output tokens: 5 fields × ~30 tokens each = ~150, doubled for safety + preamble.
+_EXTRACT_MAX_TOKENS = 1000
+
 
 def _extract_agent_verdict(llm, name: str, text: str) -> tuple[str, str]:
+    tail = text[-_TAIL_CHARS:] if len(text) > _TAIL_CHARS else text
     extract_prompt = ChatPromptTemplate.from_messages([
         ("system",
          no_think_prefix()
@@ -18,7 +25,7 @@ def _extract_agent_verdict(llm, name: str, text: str) -> tuple[str, str]:
          "Use exact prices where stated. Do not add commentary or explanation."),
         ("human", "Agent: {name}\n\n{text}"),
     ])
-    result = (extract_prompt | llm.bind(max_tokens=200)).invoke({"name": name, "text": text})
+    result = (extract_prompt | llm.bind(max_tokens=_EXTRACT_MAX_TOKENS)).invoke({"name": name, "text": tail})
     return name, result.content
 
 
@@ -51,8 +58,11 @@ def create_summary_agent(llm):
                 for name, text in raw
             }
             for future in as_completed(futures):
-                name, verdict = future.result()
-                extracted[name] = verdict
+                try:
+                    name, verdict = future.result()
+                    extracted[name] = verdict
+                except Exception:
+                    pass
 
         content = "\n\n".join(
             f"## {name}\n{extracted[name]}"
