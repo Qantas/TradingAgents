@@ -1,5 +1,25 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from langchain_core.prompts import ChatPromptTemplate
 from tradingagents.agents.utils.agent_utils import get_language_instruction, no_think_prefix
+
+
+def _extract_agent_verdict(llm, name: str, text: str) -> tuple[str, str]:
+    extract_prompt = ChatPromptTemplate.from_messages([
+        ("system",
+         no_think_prefix()
+         + "Extract the final trading verdict from this agent report. "
+         "Output ONLY these five fields, one per line, nothing else:\n"
+         "Action: BUY / SELL / SHORT / HOLD / WAIT (pick the single most specific action)\n"
+         "Entry: exact price or price zone stated in the report, or —\n"
+         "Stop: stop-loss level stated in the report, or —\n"
+         "Target: price target stated in the report, or —\n"
+         "Rationale: one sentence, max 15 words, capturing the core reason\n"
+         "Use exact prices where stated. Do not add commentary or explanation."),
+        ("human", "Agent: {name}\n\n{text}"),
+    ])
+    result = (extract_prompt | llm).invoke({"name": name, "text": text})
+    return name, result.content
 
 
 def create_summary_agent(llm):
@@ -22,12 +42,27 @@ def create_summary_agent(llm):
             ("Portfolio Manager", risk.get("judge_decision", "")),
         ]
 
+        raw = [(name, text) for name, text in sections if text]
+
+        extracted: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=len(raw)) as executor:
+            futures = {
+                executor.submit(_extract_agent_verdict, llm, name, text): name
+                for name, text in raw
+            }
+            for future in as_completed(futures):
+                name, verdict = future.result()
+                extracted[name] = verdict
+
         content = "\n\n".join(
-            f"## {name}\n{text}" for name, text in sections if text
+            f"## {name}\n{extracted[name]}"
+            for name, _ in raw
+            if name in extracted
         )
 
         system_message = (
-            no_think_prefix() + "You are a financial report summarizer. Given outputs from multiple trading agents,"
+            no_think_prefix()
+            + "You are a financial report summarizer. Given structured verdicts from multiple trading agents,"
             " produce a concise action summary organized by decision-making hierarchy"
             " (most authoritative agents first).\n\n"
             "**Output format (markdown):**\n\n"
@@ -64,12 +99,12 @@ def create_summary_agent(llm):
             + get_language_instruction()
         )
 
-        prompt = ChatPromptTemplate.from_messages([
+        format_prompt = ChatPromptTemplate.from_messages([
             ("system", system_message),
             ("human", "{content}"),
         ])
 
-        result = (prompt | llm).invoke({"content": content})
+        result = (format_prompt | llm).invoke({"content": content})
         return {"action_summary": result.content}
 
     return summary_agent_node
