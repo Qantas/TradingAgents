@@ -18,7 +18,7 @@ def _extract_agent_verdict(llm, name: str, text: str) -> tuple[str, str]:
          "Use exact prices where stated. Do not add commentary or explanation."),
         ("human", "Agent: {name}\n\n{text}"),
     ])
-    result = (extract_prompt | llm).invoke({"name": name, "text": text})
+    result = (extract_prompt | llm.bind(max_tokens=200)).invoke({"name": name, "text": text})
     return name, result.content
 
 
