@@ -26,7 +26,7 @@ def create_trader(llm):
             {
                 "role": "system",
                 "content": (
-                    f"{no_think_prefix('trader')}You are a trading agent analyzing market data to make investment decisions. "
+                    "You are a trading agent analyzing market data to make investment decisions. "
                     "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
                     "Anchor your reasoning in the analysts' reports and the research plan."
                 ),
@@ -34,7 +34,7 @@ def create_trader(llm):
             {
                 "role": "user",
                 "content": (
-                    f"Based on a comprehensive analysis by a team of analysts, here is an investment "
+                    f"{no_think_prefix('trader')}Based on a comprehensive analysis by a team of analysts, here is an investment "
                     f"plan tailored for {company_name}. {instrument_context} This plan incorporates "
                     f"insights from current technical market trends, macroeconomic indicators, and "
                     f"social media sentiment. Use this plan as a foundation for evaluating your next "

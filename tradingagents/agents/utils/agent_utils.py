@@ -38,8 +38,10 @@ def ensure_user_message(messages: list, agent_name: str = "") -> list:
         return [HumanMessage(content=f"{prefix}Begin your analysis.")] + list(messages)
     # For Ollama: ensure the prefix is in the first user turn on every call.
     # For LM Studio: having any HumanMessage first satisfies the template.
-    if provider == "ollama" and prefix and not messages[0].content.startswith(prefix):
-        return [HumanMessage(content=prefix + messages[0].content)] + list(messages[1:])
+    if provider == "ollama" and prefix:
+        content = messages[0].content
+        if isinstance(content, str) and not content.startswith(prefix):
+            return [HumanMessage(content=prefix + content)] + list(messages[1:])
     return messages
 
 
