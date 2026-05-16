@@ -1184,9 +1184,9 @@ def run_analysis(checkpoint: bool = False):
         )
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
-        # Update agent status to in_progress for the first analyst
-        first_analyst = f"{selections['analysts'][0].value.capitalize()} Analyst"
-        message_buffer.update_agent_status(first_analyst, "in_progress")
+        # Update agent status to in_progress for the first analyst (ANALYST_ORDER, not selection order)
+        if selected_analyst_keys:
+            message_buffer.update_agent_status(ANALYST_AGENT_NAMES[selected_analyst_keys[0]], "in_progress")
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
         # Create spinner text

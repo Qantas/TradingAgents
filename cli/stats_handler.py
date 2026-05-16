@@ -77,6 +77,11 @@ class StatsCallbackHandler(BaseCallbackHandler):
                 self.tokens_in += usage_metadata.get("input_tokens", 0)
                 self.tokens_out += usage_metadata.get("output_tokens", 0)
 
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        run_id = str(kwargs.get("run_id", ""))
+        with self._lock:
+            self._llm_start_times.pop(run_id, None)
+
     def on_tool_start(
         self,
         serialized: Dict[str, Any],
