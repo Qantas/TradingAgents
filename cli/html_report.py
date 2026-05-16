@@ -308,26 +308,23 @@ def _to_html(text: str) -> str:
     return f"<pre>{html.escape(text)}</pre>"
 
 
-def _card(label: str, content: str) -> str:
+def _card(label: str, content: str, charts: Dict[str, str] = None, ticker: str = "") -> str:
+    charts_html = ""
+    if charts:
+        charts_html = "".join(
+            f'<div class="chart-wrap">'
+            f'<p class="chart-label">{_CHART_LABELS.get(k, k)}</p>'
+            f'<img src="data:image/png;base64,{charts[k]}" alt="{ticker} {k} chart">'
+            f"</div>"
+            for k in _CHART_ORDER if k in charts
+        )
     return (
         f'<div class="section-card">'
         f'<p class="agent-label">{label}</p>'
+        f"{charts_html}"
         f"{_to_html(content)}"
         f"</div>"
     )
-
-
-def _charts_section(charts: Dict[str, str], ticker: str) -> str:
-    if not charts:
-        return ""
-    items = "".join(
-        f'<div class="chart-wrap">'
-        f'<p class="chart-label">{_CHART_LABELS.get(k, k)}</p>'
-        f'<img src="data:image/png;base64,{charts[k]}" alt="{ticker} {k} chart">'
-        f"</div>"
-        for k in _CHART_ORDER if k in charts
-    )
-    return f"<h2>Technical Analysis Charts</h2>{items}"
 
 
 def save_html_report(
@@ -474,8 +471,6 @@ def save_html_report(
             f'<div class="section-card">{_to_html(final_state["action_summary"])}</div>'
         )
 
-    body.append(_charts_section(charts, ticker))
-
     analyst_cards = []
     for name, key in [
         ("Market Analyst", "market_report"),
@@ -486,7 +481,8 @@ def save_html_report(
         text = final_state.get(key)
         if not text:
             continue
-        analyst_cards.append(_card(name, text))
+        embed = charts if key == "market_report" else None
+        analyst_cards.append(_card(name, text, charts=embed, ticker=ticker))
     if analyst_cards:
         body.append("<h2>I. Analyst Team Reports</h2>" + "".join(analyst_cards))
 
