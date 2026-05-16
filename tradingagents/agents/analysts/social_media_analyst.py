@@ -42,7 +42,7 @@ def create_social_media_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(ensure_user_message(state["social_messages"]))
+        result = chain.invoke(ensure_user_message(state["social_messages"], "social"))
 
         report = ""
 

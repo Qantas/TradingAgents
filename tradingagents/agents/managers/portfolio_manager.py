@@ -40,7 +40,7 @@ def create_portfolio_manager(llm):
             else ""
         )
 
-        prompt = f"""{no_think_prefix()}As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
+        prompt = f"""{no_think_prefix("portfolio_manager")}As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
 {instrument_context}
 

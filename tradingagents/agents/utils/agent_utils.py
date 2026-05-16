@@ -20,7 +20,7 @@ from tradingagents.agents.utils.news_data_tools import (
 )
 
 
-def ensure_user_message(messages: list) -> list:
+def ensure_user_message(messages: list, agent_name: str = "") -> list:
     """Ensure messages start with a HumanMessage when provider is lmstudio.
 
     LM Studio's Qwen3.6 jinja template requires at least one user turn at the
@@ -33,17 +33,24 @@ def ensure_user_message(messages: list) -> list:
     if get_config().get("llm_provider", "").lower() != "lmstudio":
         return messages
     if not messages or not isinstance(messages[0], HumanMessage):
-        return [HumanMessage(content=f"{no_think_prefix()}Begin your analysis.")] + list(messages)
+        return [HumanMessage(content=f"{no_think_prefix(agent_name)}Begin your analysis.")] + list(messages)
     return messages
 
 
-def no_think_prefix() -> str:
-    """Return '/no_think\\n' for local providers (ollama, lmstudio) to suppress Qwen3 thinking.
+def no_think_prefix(agent_name: str = "") -> str:
+    """Return '/no_think\\n' for local providers unless agent is in thinking_agents config.
 
-    Cloud providers are unaffected.
+    Cloud providers are unaffected (no prefix needed).
+    Set thinking_agents in config to a set/list of agent names that should use thinking.
+    Agent names: market, social, news, fundamentals, bull, bear, research_manager,
+                 trader, aggressive, conservative, neutral, portfolio_manager, summary.
     """
     from tradingagents.dataflows.config import get_config
-    if get_config().get("llm_provider", "").lower() in ("ollama", "lmstudio"):
+    cfg = get_config()
+    thinking_agents = cfg.get("thinking_agents", set())
+    if agent_name and agent_name in thinking_agents:
+        return ""
+    if cfg.get("llm_provider", "").lower() in ("ollama", "lmstudio"):
         return "/no_think\n"
     return ""
 

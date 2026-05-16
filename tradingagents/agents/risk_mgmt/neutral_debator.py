@@ -17,7 +17,7 @@ def create_neutral_debator(llm):
         trader_decision = state["trader_investment_plan"]
 
         from tradingagents.agents.utils.agent_utils import no_think_prefix
-        prompt = f"""{no_think_prefix()}As the Neutral Risk Analyst, your role is to provide a balanced perspective, weighing both the potential benefits and risks of the trader's decision or plan. You prioritize a well-rounded approach, evaluating the upsides and downsides while factoring in broader market trends, potential economic shifts, and diversification strategies.Here is the trader's decision:
+        prompt = f"""{no_think_prefix("neutral")}As the Neutral Risk Analyst, your role is to provide a balanced perspective, weighing both the potential benefits and risks of the trader's decision or plan. You prioritize a well-rounded approach, evaluating the upsides and downsides while factoring in broader market trends, potential economic shifts, and diversification strategies.Here is the trader's decision:
 
 {trader_decision}
 

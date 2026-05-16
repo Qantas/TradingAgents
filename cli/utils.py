@@ -331,6 +331,40 @@ def ask_gemini_thinking_config() -> str | None:
     ).ask()
 
 
+_THINKING_AGENT_PRESETS: dict[str, set[str]] = {
+    "none": set(),
+    "managers": {"research_manager", "portfolio_manager"},
+    "researchers": {"bull", "bear", "research_manager"},
+    "risk": {"aggressive", "conservative", "neutral", "portfolio_manager"},
+    "all": {"market", "social", "news", "fundamentals", "bull", "bear",
+            "research_manager", "trader", "aggressive", "conservative",
+            "neutral", "portfolio_manager", "summary"},
+}
+
+
+def ask_thinking_agents() -> set[str]:
+    """Ask which agents should use Qwen3 thinking mode (local providers only).
+
+    Returns a set of agent name strings to store in config['thinking_agents'].
+    """
+    choice = questionary.select(
+        "Select Thinking Mode for Agents:",
+        choices=[
+            questionary.Choice("None — all agents suppress thinking (fastest)", "none"),
+            questionary.Choice("Decision makers — Research Manager + Portfolio Manager think", "managers"),
+            questionary.Choice("Researchers — Bull, Bear + Research Manager think", "researchers"),
+            questionary.Choice("Risk team — Risk Analysts + Portfolio Manager think", "risk"),
+            questionary.Choice("All agents — maximum depth (slowest)", "all"),
+        ],
+        style=questionary.Style([
+            ("selected", "fg:cyan noinherit"),
+            ("highlighted", "fg:cyan noinherit"),
+            ("pointer", "fg:cyan noinherit"),
+        ]),
+    ).ask()
+    return _THINKING_AGENT_PRESETS.get(choice or "none", set())
+
+
 def ask_output_language() -> str:
     """Ask for report output language."""
     choice = questionary.select(

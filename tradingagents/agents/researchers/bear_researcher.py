@@ -13,7 +13,7 @@ def create_bear_researcher(llm):
         fundamentals_report = state["fundamentals_report"]
 
         from tradingagents.agents.utils.agent_utils import no_think_prefix
-        prompt = f"""{no_think_prefix()}You are a Bear Analyst making the case against investing in the stock. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
+        prompt = f"""{no_think_prefix("bear")}You are a Bear Analyst making the case against investing in the stock. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
 
 Key points to focus on:
 

@@ -54,7 +54,7 @@ def create_fundamentals_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(ensure_user_message(state["fundamentals_messages"]))
+        result = chain.invoke(ensure_user_message(state["fundamentals_messages"], "fundamentals"))
 
         report = ""
 

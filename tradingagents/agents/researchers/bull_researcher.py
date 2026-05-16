@@ -13,7 +13,7 @@ def create_bull_researcher(llm):
         fundamentals_report = state["fundamentals_report"]
 
         from tradingagents.agents.utils.agent_utils import no_think_prefix
-        prompt = f"""{no_think_prefix()}You are a Bull Analyst advocating for investing in the stock. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
+        prompt = f"""{no_think_prefix("bull")}You are a Bull Analyst advocating for investing in the stock. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
 
 Key points to focus on:
 - Growth Potential: Highlight the company's market opportunities, revenue projections, and scalability.

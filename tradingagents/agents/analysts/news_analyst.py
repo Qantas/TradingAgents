@@ -48,7 +48,7 @@ def create_news_analyst(llm):
         prompt = prompt.partial(instrument_context=instrument_context)
 
         chain = prompt | llm.bind_tools(tools)
-        result = chain.invoke(ensure_user_message(state["news_messages"]))
+        result = chain.invoke(ensure_user_message(state["news_messages"], "news"))
 
         report = ""
 

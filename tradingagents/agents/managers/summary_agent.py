@@ -14,7 +14,7 @@ def _extract_agent_verdict(llm, name: str, text: str) -> tuple[str, str]:
     tail = text[-_TAIL_CHARS:] if len(text) > _TAIL_CHARS else text
     extract_prompt = ChatPromptTemplate.from_messages([
         ("system",
-         no_think_prefix()
+         no_think_prefix("summary")
          + "Extract the final trading verdict from this agent report. "
          "Output ONLY these five fields, one per line, nothing else:\n"
          "Action: BUY / SELL / SHORT / HOLD / WAIT (pick the single most specific action)\n"
@@ -71,7 +71,7 @@ def create_summary_agent(llm):
         )
 
         system_message = (
-            no_think_prefix()
+            no_think_prefix("summary")
             + "You are a financial report summarizer. Given structured verdicts from multiple trading agents,"
             " produce a concise action summary organized by decision-making hierarchy"
             " (most authoritative agents first).\n\n"

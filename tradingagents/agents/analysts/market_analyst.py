@@ -74,7 +74,7 @@ Volume-Based Indicators:
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(ensure_user_message(state["market_messages"]))
+        result = chain.invoke(ensure_user_message(state["market_messages"], "market"))
 
         report = ""
 

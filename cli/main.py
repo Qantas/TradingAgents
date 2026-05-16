@@ -569,6 +569,7 @@ def get_user_selections():
     thinking_level = None
     reasoning_effort = None
     anthropic_effort = None
+    thinking_agents: set[str] = set()
 
     provider_lower = selected_llm_provider.lower()
     if provider_lower == "google":
@@ -595,6 +596,14 @@ def get_user_selections():
             )
         )
         anthropic_effort = ask_anthropic_effort()
+    elif provider_lower in ("ollama", "lmstudio"):
+        console.print(
+            create_question_box(
+                "Step 8: Agent Thinking Mode",
+                "Choose which agents use Qwen3 thinking (extended reasoning). More agents = slower but deeper."
+            )
+        )
+        thinking_agents = ask_thinking_agents()
 
     return {
         "ticker": selected_ticker,
@@ -610,6 +619,7 @@ def get_user_selections():
         "openai_reasoning_effort": reasoning_effort,
         "anthropic_effort": anthropic_effort,
         "output_language": output_language,
+        "thinking_agents": thinking_agents,
     }
 
 
@@ -742,8 +752,14 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         google_thinking = meta.get("google_thinking_level", "")
         openai_effort = meta.get("openai_reasoning_effort", "")
         anthropic_effort = meta.get("anthropic_effort", "")
-        from tradingagents.agents.utils.agent_utils import no_think_prefix
-        thinking_status = "OFF (/no_think)" if no_think_prefix() else "ON"
+        thinking_agents_cfg = meta.get("thinking_agents", set())
+        if provider.lower() in ("ollama", "lmstudio"):
+            if thinking_agents_cfg:
+                thinking_status = f"Selective ({', '.join(sorted(thinking_agents_cfg))})"
+            else:
+                thinking_status = "OFF (/no_think)"
+        else:
+            thinking_status = "ON (provider default)"
 
         extra_lines = ""
         if backend_url:
@@ -786,10 +802,28 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             "Aggressive Analyst", "Conservative Analyst", "Neutral Analyst", "Portfolio Manager",
             "Summary",
         ]
-        from tradingagents.agents.utils.agent_utils import no_think_prefix
-        _no_think = bool(no_think_prefix())
+        _thinking_agents_cfg = (meta or {}).get("thinking_agents", set())
+        _provider = (meta or {}).get("llm_provider", "")
+        _local = _provider.lower() in ("ollama", "lmstudio")
+        _KEY_TO_AGENT = {
+            "Analyst Phase": None,
+            "Bull Researcher": "bull",
+            "Bear Researcher": "bear",
+            "Research Manager": "research_manager",
+            "Trader": "trader",
+            "Aggressive Analyst": "aggressive",
+            "Conservative Analyst": "conservative",
+            "Neutral Analyst": "neutral",
+            "Portfolio Manager": "portfolio_manager",
+            "Summary": "summary",
+        }
         def _thinking(key):
-            return "OFF" if _no_think else "ON"
+            if not _local:
+                return "ON"
+            agent_name = _KEY_TO_AGENT.get(key)
+            if agent_name and agent_name in _thinking_agents_cfg:
+                return "ON"
+            return "OFF"
 
         rows = []
         for key in AGENT_KEYS:
@@ -1054,6 +1088,7 @@ def run_analysis(checkpoint: bool = False):
     config["openai_reasoning_effort"] = selections.get("openai_reasoning_effort")
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
+    config["thinking_agents"] = selections.get("thinking_agents", set())
     config["checkpoint_enabled"] = checkpoint
 
     # Create stats callback handler for tracking LLM/tool calls
