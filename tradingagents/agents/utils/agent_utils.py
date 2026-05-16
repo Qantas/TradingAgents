@@ -21,16 +21,16 @@ from tradingagents.agents.utils.news_data_tools import (
 
 
 def ensure_user_message(messages: list, agent_name: str = "") -> list:
-    """Ensure messages start with a HumanMessage when provider is lmstudio.
+    """Ensure messages start with a HumanMessage for local Qwen3 providers.
 
-    LM Studio's Qwen3.6 jinja template requires at least one user turn at the
-    start of every call. The seed is not stored in state so we must prepend it
-    on every invoke — including mid-ReAct iterations where state starts with
-    an AIMessage (tool call) followed by ToolMessages.
-    Ollama and cloud providers are unaffected.
+    LM Studio requires at least one user turn at the start of every call due
+    to its jinja template. Ollama needs the same so the /no_think prefix reaches
+    the first user turn. Cloud providers are unaffected.
+    The seed is not stored in state so we must prepend it on every invoke —
+    including mid-ReAct iterations where state starts with an AIMessage.
     """
     from tradingagents.dataflows.config import get_config
-    if get_config().get("llm_provider", "").lower() != "lmstudio":
+    if get_config().get("llm_provider", "").lower() not in ("ollama", "lmstudio"):
         return messages
     if not messages or not isinstance(messages[0], HumanMessage):
         return [HumanMessage(content=f"{no_think_prefix(agent_name)}Begin your analysis.")] + list(messages)

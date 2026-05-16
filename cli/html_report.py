@@ -340,17 +340,43 @@ def save_html_report(
         provider = meta.get("llm_provider", "")
         deep = meta.get("deep_thinker", "")
         quick = meta.get("shallow_thinker", "")
+        analysis_date = meta.get("analysis_date", "")
+        analysts_list = meta.get("analysts", [])
+        analysts_str = ", ".join(
+            a.value if hasattr(a, "value") else str(a) for a in analysts_list
+        ) if analysts_list else "all"
+        backend_url = meta.get("backend_url", "")
+        output_language = meta.get("output_language", "")
+        google_thinking = meta.get("google_thinking_level", "")
+        openai_effort = meta.get("openai_reasoning_effort", "")
+        anthropic_effort = meta.get("anthropic_effort", "")
+        thinking_agents_cfg = meta.get("thinking_agents", [])
+        if provider.lower() in ("ollama", "lmstudio"):
+            thinking_status = f"Selective ({', '.join(sorted(thinking_agents_cfg))})" if thinking_agents_cfg else "OFF (/no_think)"
+        else:
+            thinking_status = "ON (provider default)"
     else:
-        depth_rounds = depth_label = provider = deep = quick = ""
+        depth_rounds = depth_label = provider = deep = quick = analysis_date = ""
+        analysts_str = backend_url = output_language = google_thinking = ""
+        openai_effort = anthropic_effort = thinking_status = ""
+        thinking_agents_cfg = []
 
     generated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     meta_items = [
         ("Generated", generated),
+        ("Analysis Date", analysis_date),
         ("Provider", provider),
         ("Deep Thinker", deep),
         ("Quick Thinker", quick),
         ("Research Depth", f"{depth_label} ({depth_rounds} rounds)" if depth_rounds else depth_label),
         ("Trade Date", trade_date),
+        ("Analysts", analysts_str),
+        ("Thinking", thinking_status),
+        ("Backend URL", backend_url),
+        ("Google Thinking Level", google_thinking),
+        ("OpenAI Reasoning Effort", openai_effort),
+        ("Anthropic Effort", anthropic_effort),
+        ("Output Language", output_language),
     ]
     meta_html = '<div class="meta">' + "".join(
         f'<div class="meta-item">'
@@ -371,6 +397,29 @@ def save_html_report(
         total_llm = timing.get("_total_llm_seconds", 0)
         has_llm = total_llm > 0
 
+        _local = provider.lower() in ("ollama", "lmstudio")
+        _ANALYST_NAMES = {"market", "social", "news", "fundamentals"}
+        _KEY_TO_AGENT = {
+            "Analyst Phase": None,
+            "Bull Researcher": "bull",
+            "Bear Researcher": "bear",
+            "Research Manager": "research_manager",
+            "Trader": "trader",
+            "Aggressive Analyst": "aggressive",
+            "Conservative Analyst": "conservative",
+            "Neutral Analyst": "neutral",
+            "Portfolio Manager": "portfolio_manager",
+            "Summary": "summary",
+        }
+
+        def _thinking_html(key):
+            if not _local:
+                return "ON"
+            agent_name = _KEY_TO_AGENT.get(key)
+            if agent_name is None:
+                return "ON" if _ANALYST_NAMES & set(thinking_agents_cfg) else "OFF"
+            return "ON" if agent_name in thinking_agents_cfg else "OFF"
+
         rows = []
         for key in _AGENT_KEYS:
             if key not in timing:
@@ -378,6 +427,7 @@ def save_html_report(
             secs = timing[key]
             m, s = divmod(int(secs), 60)
             pct = (secs / total * 100) if total else 0
+            think_cell = _thinking_html(key)
             if has_llm:
                 llm_secs = timing.get(f"llm_{key}")
                 if llm_secs:
@@ -385,19 +435,19 @@ def save_html_report(
                     llm_cell = f"{ls // 60:02d}:{ls % 60:02d}"
                 else:
                     llm_cell = "—"
-                rows.append(f"<tr><td>{key}</td><td>{m:02d}:{s:02d}</td><td>{pct:.1f}%</td><td>{llm_cell}</td></tr>")
+                rows.append(f"<tr><td>{key}</td><td>{m:02d}:{s:02d}</td><td>{pct:.1f}%</td><td>{llm_cell}</td><td>{think_cell}</td></tr>")
             else:
-                rows.append(f"<tr><td>{key}</td><td>{m:02d}:{s:02d}</td><td>{pct:.1f}%</td></tr>")
+                rows.append(f"<tr><td>{key}</td><td>{m:02d}:{s:02d}</td><td>{pct:.1f}%</td><td>{think_cell}</td></tr>")
 
         if has_llm:
             lh, lr = divmod(int(total_llm), 3600)
             lm, ls = divmod(lr, 60)
             llm_str = f"{lh:02d}:{lm:02d}:{ls:02d}"
             summary = f"Total elapsed: <strong>{total_str}</strong> &nbsp;|&nbsp; LLM generation: <strong>{llm_str}</strong>"
-            head_row = "<tr><th>Agent</th><th>Wall Clock</th><th>% of Total</th><th>LLM Time</th></tr>"
+            head_row = "<tr><th>Agent</th><th>Wall Clock</th><th>% of Total</th><th>LLM Time</th><th>Thinking</th></tr>"
         else:
             summary = f"Total elapsed: <strong>{total_str}</strong>"
-            head_row = "<tr><th>Agent</th><th>Duration</th><th>% of Total</th></tr>"
+            head_row = "<tr><th>Agent</th><th>Duration</th><th>% of Total</th><th>Thinking</th></tr>"
 
         timing_html = (
             "<h2>Run Timing</h2>"
