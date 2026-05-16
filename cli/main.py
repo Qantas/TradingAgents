@@ -805,6 +805,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         _thinking_agents_cfg = (meta or {}).get("thinking_agents", set())
         _provider = (meta or {}).get("llm_provider", "")
         _local = _provider.lower() in ("ollama", "lmstudio")
+        _ANALYST_NAMES = {"market", "social", "news", "fundamentals"}
         _KEY_TO_AGENT = {
             "Analyst Phase": None,
             "Bull Researcher": "bull",
@@ -821,9 +822,9 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             if not _local:
                 return "ON"
             agent_name = _KEY_TO_AGENT.get(key)
-            if agent_name and agent_name in _thinking_agents_cfg:
-                return "ON"
-            return "OFF"
+            if agent_name is None:
+                return "ON" if _ANALYST_NAMES & set(_thinking_agents_cfg) else "OFF"
+            return "ON" if agent_name in _thinking_agents_cfg else "OFF"
 
         rows = []
         for key in AGENT_KEYS:
@@ -1435,6 +1436,14 @@ def run_analysis(checkpoint: bool = False):
                 "shallow_thinker": selections["shallow_thinker"],
                 "research_depth": selections["research_depth"],
                 "research_depth_label": selections["research_depth_label"],
+                "analysis_date": selections.get("analysis_date", ""),
+                "analysts": selections.get("analysts", []),
+                "backend_url": selections.get("backend_url", ""),
+                "output_language": selections.get("output_language", ""),
+                "google_thinking_level": selections.get("google_thinking_level"),
+                "openai_reasoning_effort": selections.get("openai_reasoning_effort"),
+                "anthropic_effort": selections.get("anthropic_effort"),
+                "thinking_agents": sorted(selections.get("thinking_agents", set())),
             }
             report_file = save_report_to_disk(final_state, selections["ticker"], save_path, timing=agent_elapsed, meta=report_meta)
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
