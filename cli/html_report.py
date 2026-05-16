@@ -544,6 +544,6 @@ def save_html_report(
 </body>
 </html>"""
 
-    out = save_path / "complete_report.html"
+    out = save_path / f"{save_path.name}_complete_report.html"
     out.write_text(html, encoding="utf-8")
     return out

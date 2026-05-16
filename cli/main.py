@@ -863,7 +863,8 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         )
         header += timing_table + "\n\n"
 
-    (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
+    run_id = save_path.name
+    (save_path / f"{run_id}_complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
 
     try:
         from cli.html_report import save_html_report
@@ -871,7 +872,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
     except Exception:
         pass
 
-    return save_path / "complete_report.md"
+    return save_path / f"{run_id}_complete_report.md"
 
 
 def display_complete_report(final_state):
