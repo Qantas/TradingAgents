@@ -732,16 +732,42 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         quick = meta.get("shallow_thinker", "")
         deep = meta.get("deep_thinker", "")
         provider = meta.get("llm_provider", "")
+        analysis_date = meta.get("analysis_date", "")
+        analysts_list = meta.get("analysts", [])
+        analysts_str = ", ".join(
+            a.value if hasattr(a, "value") else str(a) for a in analysts_list
+        ) if analysts_list else "all"
+        backend_url = meta.get("backend_url", "")
+        output_language = meta.get("output_language", "")
+        google_thinking = meta.get("google_thinking_level", "")
+        openai_effort = meta.get("openai_reasoning_effort", "")
+        anthropic_effort = meta.get("anthropic_effort", "")
         from tradingagents.agents.utils.agent_utils import no_think_prefix
         thinking_status = "OFF (/no_think)" if no_think_prefix() else "ON"
+
+        extra_lines = ""
+        if backend_url:
+            extra_lines += f"Backend URL: {backend_url}  \n"
+        if google_thinking:
+            extra_lines += f"Google Thinking Level: {google_thinking}  \n"
+        if openai_effort:
+            extra_lines += f"OpenAI Reasoning Effort: {openai_effort}  \n"
+        if anthropic_effort:
+            extra_lines += f"Anthropic Effort: {anthropic_effort}  \n"
+        if output_language:
+            extra_lines += f"Output Language: {output_language}  \n"
+
         header = (
             f"# Trading Analysis Report: {ticker}\n\n"
             f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n"
+            f"Analysis Date: {analysis_date}  \n"
             f"Provider: {provider}  \n"
             f"Deep Thinker: {deep}  \n"
             f"Quick Thinker: {quick}  \n"
             f"Research Depth: {depth_label} (debate rounds: {depth_rounds})  \n"
-            f"Thinking: {thinking_status}  \n\n"
+            f"Analysts: {analysts_str}  \n"
+            f"Thinking: {thinking_status}  \n"
+            + extra_lines + "\n"
         )
     else:
         header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
