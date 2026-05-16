@@ -671,10 +671,6 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "fundamentals.md").write_text(final_state["fundamentals_report"], encoding="utf-8")
         analyst_parts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
-    # 0. Action Summary
-    if final_state.get("action_summary"):
-        sections.append(f"## Action Summary\n\n{final_state['action_summary']}")
-
     if analyst_parts:
         content = "\n\n".join(f"### {name}\n{text}" for name, text in analyst_parts)
         sections.append(f"## I. Analyst Team Reports\n\n{content}")
@@ -734,6 +730,13 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             portfolio_dir.mkdir(exist_ok=True)
             (portfolio_dir / "decision.md").write_text(risk["judge_decision"], encoding="utf-8")
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
+
+    # 6. Action Summary (produced by summary agent after portfolio manager)
+    if final_state.get("action_summary"):
+        portfolio_dir = save_path / "5_portfolio"
+        portfolio_dir.mkdir(exist_ok=True)
+        (portfolio_dir / "summary.md").write_text(final_state["action_summary"], encoding="utf-8")
+        sections.append(f"## Action Summary\n\n{final_state['action_summary']}")
 
     # Write consolidated report
     if meta:
