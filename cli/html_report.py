@@ -1,7 +1,6 @@
 import base64
 import datetime
 import io
-import re
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -84,6 +83,8 @@ tr:hover { background: #1e1e2e; }
 .meta-value { color: #cdd6f4; font-weight: 500; }
 .chart-wrap { margin: 16px 0; }
 .chart-wrap img { width: 100%; border-radius: 8px; border: 1px solid #313244; }
+.chart-label { font-size: 0.8rem; color: #6c7086; text-transform: uppercase;
+               letter-spacing: 0.08em; margin: 16px 0 4px; }
 .section-card {
   background: #181825; border: 1px solid #313244; border-radius: 8px;
   padding: 18px 22px; margin: 14px 0;
@@ -95,16 +96,15 @@ tr:hover { background: #1e1e2e; }
                letter-spacing: 0.1em; margin-bottom: 4px; }
 """
 
-# Maps heading keyword patterns → chart key.
-# Charts are injected once per key (first matching heading wins).
-_HEADING_CHART_MAP = [
-    (r"moving.averag|sma|ema|death.cross|golden.cross|trend", "price"),
-    (r"bollinger", "price"),
-    (r"\bmacd\b|momentum", "macd"),
-    (r"\brsi\b", "rsi"),
-    (r"\batr\b|volatility", "atr"),
-    (r"volume|vwma", "volume"),
-]
+_CHART_LABELS = {
+    "candlestick": "OHLC Candlestick",
+    "price": "Price / Moving Averages / Bollinger Bands",
+    "volume": "Volume / VWMA",
+    "macd": "MACD (12, 26, 9)",
+    "rsi": "RSI (14)",
+    "atr": "Average True Range (14)",
+}
+_CHART_ORDER = ["candlestick", "price", "volume", "macd", "rsi", "atr"]
 
 
 def _fig_to_b64(fig) -> str:
@@ -137,6 +137,7 @@ def _generate_charts(ticker: str, trade_date: str) -> Dict[str, str]:
         import numpy as np
         import pandas as pd
         import yfinance as yf
+        from matplotlib.patches import Rectangle
 
         BG, TICK = "#1a1a2e", "#6c7086"
 
@@ -174,7 +175,6 @@ def _generate_charts(ticker: str, trade_date: str) -> Dict[str, str]:
         avg_loss = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
         rs = avg_gain / avg_loss.where(avg_loss != 0, np.nan)
         rsi = (100 - 100 / (1 + rs)).fillna(100)
-        # ATR
         prev_close = close.shift(1)
         tr = pd.concat([
             (df["High"] - df["Low"]),
@@ -184,14 +184,35 @@ def _generate_charts(ticker: str, trade_date: str) -> Dict[str, str]:
         atr = tr.ewm(com=13, adjust=False).mean()
 
         # Trim to 3-month display window
-        mask = close.index >= (end - pd.DateOffset(months=3))
-        close, volume = close[mask], volume[mask]
+        mask = df.index >= (end - pd.DateOffset(months=3))
+        df3 = df[mask]
+        close, volume = df3["Close"], df3["Volume"]
         ema10, sma50, sma200, vwma20 = ema10[mask], sma50[mask], sma200[mask], vwma20[mask]
         bb_upper, bb_lower = bb_upper[mask], bb_lower[mask]
         macd, macd_sig, macd_hist = macd[mask], macd_sig[mask], macd_hist[mask]
         rsi, atr = rsi[mask], atr[mask]
 
         charts = {}
+
+        # ── Candlestick OHLC ───────────────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(14, 4), facecolor=BG)
+        _ax_style(ax)
+        for date, row in df3.iterrows():
+            color = "#a6e3a1" if row.Close >= row.Open else "#f38ba8"
+            body_bottom = min(row.Open, row.Close)
+            body_height = abs(row.Close - row.Open) or 0.01
+            ax.add_patch(Rectangle(
+                (mdates.date2num(date) - 0.3, body_bottom), 0.6, body_height,
+                color=color, zorder=3,
+            ))
+            ax.plot([date, date], [row.Low, row.High], color=color, linewidth=0.8, zorder=2)
+        ax.set_xlim(mdates.date2num(df3.index[0]) - 1, mdates.date2num(df3.index[-1]) + 1)
+        ax.autoscale_view()
+        ax.set_ylabel("Price (USD)", color=TICK, fontsize=9)
+        ax.set_title(f"{ticker} — OHLC Candlestick (3 months)", color="#cdd6f4", fontsize=10, pad=8)
+        _xaxis(ax)
+        fig.tight_layout()
+        charts["candlestick"] = _fig_to_b64(fig)
 
         # ── Price + MAs + Bollinger Bands ──────────────────────────────────
         fig, ax = plt.subplots(figsize=(14, 4), facecolor=BG)
@@ -209,6 +230,27 @@ def _generate_charts(ticker: str, trade_date: str) -> Dict[str, str]:
         _xaxis(ax)
         fig.tight_layout()
         charts["price"] = _fig_to_b64(fig)
+
+        # ── Volume + VWMA ──────────────────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(14, 2.5), facecolor=BG)
+        _ax_style(ax)
+        bar_colors = [
+            "#a6e3a1" if i == 0 or close.iloc[i] >= close.iloc[i - 1] else "#f38ba8"
+            for i in range(len(close))
+        ]
+        ax.bar(volume.index, volume, color=bar_colors, width=0.8, alpha=0.75)
+        ax2 = ax.twinx()
+        ax2.set_facecolor("#0d0d1a")
+        ax2.plot(vwma20.index, vwma20, color="#fab387", linewidth=1.1, label="VWMA 20")
+        ax2.tick_params(colors=TICK, labelsize=8)
+        ax2.set_ylabel("VWMA (USD)", color=TICK, fontsize=9)
+        ax2.legend(loc="upper right", fontsize=7.5, framealpha=0.4, facecolor=BG, labelcolor="#cdd6f4", edgecolor="#333344")
+        ax.set_ylabel("Volume", color=TICK, fontsize=9)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x/1e6:.0f}M"))
+        ax.set_title(f"{ticker} — Volume / VWMA", color="#cdd6f4", fontsize=10, pad=8)
+        _xaxis(ax)
+        fig.tight_layout()
+        charts["volume"] = _fig_to_b64(fig)
 
         # ── MACD ───────────────────────────────────────────────────────────
         fig, ax = plt.subplots(figsize=(14, 3), facecolor=BG)
@@ -253,54 +295,10 @@ def _generate_charts(ticker: str, trade_date: str) -> Dict[str, str]:
         fig.tight_layout()
         charts["atr"] = _fig_to_b64(fig)
 
-        # ── Volume + VWMA ──────────────────────────────────────────────────
-        fig, ax = plt.subplots(figsize=(14, 2.5), facecolor=BG)
-        _ax_style(ax)
-        bar_colors = [
-            "#a6e3a1" if i == 0 or close.iloc[i] >= close.iloc[i - 1] else "#f38ba8"
-            for i in range(len(close))
-        ]
-        ax.bar(volume.index, volume, color=bar_colors, width=0.8, alpha=0.75)
-        ax2 = ax.twinx()
-        ax2.set_facecolor("#0d0d1a")
-        ax2.plot(vwma20.index, vwma20, color="#fab387", linewidth=1.1, label="VWMA 20")
-        ax2.tick_params(colors=TICK, labelsize=8)
-        ax2.set_ylabel("VWMA (USD)", color=TICK, fontsize=9)
-        ax2.legend(loc="upper right", fontsize=7.5, framealpha=0.4, facecolor=BG, labelcolor="#cdd6f4", edgecolor="#333344")
-        ax.set_ylabel("Volume", color=TICK, fontsize=9)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x/1e6:.0f}M"))
-        ax.set_title(f"{ticker} — Volume / VWMA", color="#cdd6f4", fontsize=10, pad=8)
-        _xaxis(ax)
-        fig.tight_layout()
-        charts["volume"] = _fig_to_b64(fig)
-
         return charts
 
     except Exception:
         return {}
-
-
-def _inject_charts(market_html: str, charts: Dict[str, str], ticker: str) -> str:
-    """Insert chart images after the first heading whose text matches each indicator keyword."""
-    injected = set()
-
-    def img(key: str) -> str:
-        return (
-            f'<div class="chart-wrap">'
-            f'<img src="data:image/png;base64,{charts[key]}" alt="{ticker} {key} chart">'
-            f"</div>"
-        )
-
-    def replacer(m: re.Match) -> str:
-        tag = m.group(0)
-        text = re.sub(r"<[^>]+>", "", tag).lower()
-        for pattern, key in _HEADING_CHART_MAP:
-            if key in charts and key not in injected and re.search(pattern, text):
-                injected.add(key)
-                return tag + img(key)
-        return tag
-
-    return re.sub(r"<h[34][^>]*>.*?</h[34]>", replacer, market_html, flags=re.DOTALL)
 
 
 def _to_html(text: str) -> str:
@@ -310,16 +308,26 @@ def _to_html(text: str) -> str:
     return f"<pre>{html.escape(text)}</pre>"
 
 
-def _card(label: str, content: str, charts: Dict[str, str] = None, ticker: str = "") -> str:
-    html_body = _to_html(content)
-    if charts:
-        html_body = _inject_charts(html_body, charts, ticker)
+def _card(label: str, content: str) -> str:
     return (
         f'<div class="section-card">'
         f'<p class="agent-label">{label}</p>'
-        f"{html_body}"
+        f"{_to_html(content)}"
         f"</div>"
     )
+
+
+def _charts_section(charts: Dict[str, str], ticker: str) -> str:
+    if not charts:
+        return ""
+    items = "".join(
+        f'<div class="chart-wrap">'
+        f'<p class="chart-label">{_CHART_LABELS.get(k, k)}</p>'
+        f'<img src="data:image/png;base64,{charts[k]}" alt="{ticker} {k} chart">'
+        f"</div>"
+        for k in _CHART_ORDER if k in charts
+    )
+    return f"<h2>Technical Analysis Charts</h2>{items}"
 
 
 def save_html_report(
@@ -466,6 +474,8 @@ def save_html_report(
             f'<div class="section-card">{_to_html(final_state["action_summary"])}</div>'
         )
 
+    body.append(_charts_section(charts, ticker))
+
     analyst_cards = []
     for name, key in [
         ("Market Analyst", "market_report"),
@@ -476,9 +486,7 @@ def save_html_report(
         text = final_state.get(key)
         if not text:
             continue
-        # inject charts into market analyst only; charts dict is consumed per-card
-        embed = charts if key == "market_report" else None
-        analyst_cards.append(_card(name, text, charts=embed, ticker=ticker))
+        analyst_cards.append(_card(name, text))
     if analyst_cards:
         body.append("<h2>I. Analyst Team Reports</h2>" + "".join(analyst_cards))
 
