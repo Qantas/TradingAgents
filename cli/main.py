@@ -819,6 +819,8 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path, timing: dict 
             "Summary": "summary",
         }
         def _thinking(key):
+            if not _provider:
+                return "—"
             if not _local:
                 return "ON"
             agent_name = _KEY_TO_AGENT.get(key)

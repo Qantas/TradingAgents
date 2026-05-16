@@ -413,6 +413,8 @@ def save_html_report(
         }
 
         def _thinking_html(key):
+            if not provider:
+                return "—"
             if not _local:
                 return "ON"
             agent_name = _KEY_TO_AGENT.get(key)
