@@ -93,7 +93,7 @@ tr:hover { background: #1e1e2e; }
   font-size: 0.72rem; color: #6c7086; text-transform: uppercase;
   letter-spacing: 0.08em; margin: 10px 0 2px;
 }
-.lc-pane { width: 100%; border-radius: 6px; }
+.lc-pane { width: 100%; overflow: visible; }
 """
 
 
@@ -198,11 +198,11 @@ def _interactive_charts_html(data: dict, ticker: str) -> str:
         f'<div class="lc-pane-label">{title}</div>'
         f'<div id="lc-{cid}-{key}" class="lc-pane" style="height:{h}px"></div>'
         for key, title, h in [
-            ("candle", "Candlestick · EMA10 · SMA50 · SMA200 · BB · VWMA20", 300),
-            ("vol",    "Volume",                                               100),
-            ("macd",   "MACD (12, 26, 9)",                                    110),
-            ("rsi",    "RSI (14)",                                             100),
-            ("atr",    "Average True Range (14)",                              80),
+            ("candle", "Candlestick · EMA10 · SMA50 · SMA200 · BB · VWMA20", 330),
+            ("vol",    "Volume",                                               130),
+            ("macd",   "MACD (12, 26, 9)",                                    140),
+            ("rsi",    "RSI (14)",                                             130),
+            ("atr",    "Average True Range (14)",                              110),
         ]
     )
 
@@ -219,26 +219,31 @@ def _interactive_charts_html(data: dict, ticker: str) -> str:
     var LC = LightweightCharts;
     var BG='#1a1a2e',GRID='#1e1e2e',TXT='#cdd6f4',BDR='#333344';
 
-    function mkChart(id,h,showTime){{
+    function mkChart(id,h){{
       var el=document.getElementById(id); if(!el) return null;
       return LC.createChart(el,{{
         width:el.clientWidth, height:h,
         layout:{{background:{{color:BG}},textColor:TXT}},
         grid:{{vertLines:{{color:GRID}},horzLines:{{color:GRID}}}},
         rightPriceScale:{{borderColor:BDR}},
-        timeScale:{{borderColor:BDR,timeVisible:true,visible:showTime}},
+        timeScale:{{borderColor:BDR,timeVisible:true}},
         crosshair:{{mode:LC.CrosshairMode.Normal}},
         handleScale:true, handleScroll:true,
       }});
     }}
 
-    var c1=mkChart('lc-{cid}-candle',300,false);
-    var c2=mkChart('lc-{cid}-vol',   100,false);
-    var c3=mkChart('lc-{cid}-macd',  110,false);
-    var c4=mkChart('lc-{cid}-rsi',   100,false);
-    var c5=mkChart('lc-{cid}-atr',    80,true);
+    var c1=mkChart('lc-{cid}-candle',330);
+    var c2=mkChart('lc-{cid}-vol',   130);
+    var c3=mkChart('lc-{cid}-macd',  140);
+    var c4=mkChart('lc-{cid}-rsi',   130);
+    var c5=mkChart('lc-{cid}-atr',   110);
     var charts=[c1,c2,c3,c4,c5].filter(Boolean);
     window.__taCharts['{cid}']=charts;
+    // LW Charts sets overflow:hidden on the container — override so time axis labels aren't clipped
+    ['candle','vol','macd','rsi','atr'].forEach(function(k){{
+      var el=document.getElementById('lc-{cid}-'+k);
+      if(el) el.style.overflow='visible';
+    }});
 
     // ── Candle pane ──────────────────────────────────────────────────────
     var cs=c1.addCandlestickSeries({{
