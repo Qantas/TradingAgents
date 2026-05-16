@@ -1,22 +1,11 @@
-import base64
 import datetime
-import io
+import json
+import re
 from pathlib import Path
 from typing import Dict, Optional
 
 try:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.dates as mdates
-    import matplotlib.pyplot as plt
-
-    _MATPLOTLIB = True
-except ImportError:
-    _MATPLOTLIB = False
-
-try:
     import markdown as _md_lib
-
     _MARKDOWN = True
 except ImportError:
     _MARKDOWN = False
@@ -33,6 +22,8 @@ _AGENT_KEYS = [
     "Portfolio Manager",
     "Summary",
 ]
+
+_LC_CDN = "https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"
 
 _CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -81,10 +72,6 @@ tr:hover { background: #1e1e2e; }
 .meta-item { display: flex; gap: 7px; }
 .meta-label { color: #6c7086; white-space: nowrap; }
 .meta-value { color: #cdd6f4; font-weight: 500; }
-.chart-wrap { margin: 16px 0; }
-.chart-wrap img { width: 100%; border-radius: 8px; border: 1px solid #313244; }
-.chart-label { font-size: 0.8rem; color: #6c7086; text-transform: uppercase;
-               letter-spacing: 0.08em; margin: 16px 0 4px; }
 .section-card {
   background: #181825; border: 1px solid #313244; border-radius: 8px;
   padding: 18px 22px; margin: 14px 0;
@@ -94,57 +81,33 @@ tr:hover { background: #1e1e2e; }
 .section-card h4 { color: #f9e2af; }
 .agent-label { font-size: 0.78rem; color: #6c7086; text-transform: uppercase;
                letter-spacing: 0.1em; margin-bottom: 4px; }
+.dur-btns { display: flex; gap: 6px; margin: 12px 0 8px; flex-wrap: wrap; }
+.dur-btn {
+  background: #313244; border: 1px solid #45475a; color: #cdd6f4;
+  padding: 3px 11px; border-radius: 4px; cursor: pointer;
+  font-size: 0.78rem; font-family: inherit; transition: background 0.15s;
+}
+.dur-btn:hover { background: #45475a; }
+.dur-btn.active { background: #89b4fa; color: #1e1e2e; border-color: #89b4fa; font-weight: 600; }
+.lc-pane-label {
+  font-size: 0.72rem; color: #6c7086; text-transform: uppercase;
+  letter-spacing: 0.08em; margin: 10px 0 2px;
+}
+.lc-pane { width: 100%; border-radius: 6px; overflow: hidden; }
 """
 
-_CHART_LABELS = {
-    "candlestick": "OHLC Candlestick",
-    "price": "Price / Moving Averages / Bollinger Bands",
-    "volume": "Volume / VWMA",
-    "macd": "MACD (12, 26, 9)",
-    "rsi": "RSI (14)",
-    "atr": "Average True Range (14)",
-}
-_CHART_ORDER = ["candlestick", "price", "volume", "macd", "rsi", "atr"]
 
-
-def _fig_to_b64(fig) -> str:
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=120, bbox_inches="tight", facecolor=fig.get_facecolor())
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("utf-8")
-
-
-def _ax_style(ax, bg="#0d0d1a", grid="#1e1e2e", tick="#6c7086"):
-    ax.set_facecolor(bg)
-    ax.tick_params(colors=tick, labelsize=8)
-    for sp in ax.spines.values():
-        sp.set_color("#333344")
-    ax.grid(color=grid, linewidth=0.5)
-
-
-def _xaxis(ax, tick="#6c7086"):
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-    ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right", color=tick, fontsize=8)
-
-
-def _generate_charts(ticker: str, trade_date: str) -> Dict[str, str]:
-    """Return {chart_key: base64_png} for each indicator group, or {} on failure."""
-    if not _MATPLOTLIB:
-        return {}
+def _prepare_chart_data(ticker: str, trade_date: str) -> dict:
+    """Fetch 2 years of OHLCV and compute all indicators. Returns JSON-serialisable dict."""
     try:
         import numpy as np
         import pandas as pd
         import yfinance as yf
-        from matplotlib.patches import Rectangle
-
-        BG, TICK = "#1a1a2e", "#6c7086"
 
         end = pd.Timestamp(trade_date)
         df = yf.download(
             ticker,
-            start=(end - pd.DateOffset(months=5)).strftime("%Y-%m-%d"),
+            start=(end - pd.DateOffset(years=2)).strftime("%Y-%m-%d"),
             end=(end + pd.DateOffset(days=1)).strftime("%Y-%m-%d"),
             progress=False,
             auto_adjust=True,
@@ -154,151 +117,216 @@ def _generate_charts(ticker: str, trade_date: str) -> Dict[str, str]:
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        close = df["Close"]
+        close  = df["Close"]
         volume = df["Volume"]
 
-        ema10 = close.ewm(span=10, adjust=False).mean()
-        sma50 = close.rolling(50).mean()
-        sma200 = close.rolling(200).mean()
-        vwma20 = (close * volume).rolling(20).sum() / volume.rolling(20).sum()
-        sma20 = close.rolling(20).mean()
-        std20 = close.rolling(20).std()
-        bb_upper = sma20 + 2 * std20
-        bb_lower = sma20 - 2 * std20
-        ema12 = close.ewm(span=12, adjust=False).mean()
-        ema26 = close.ewm(span=26, adjust=False).mean()
-        macd = ema12 - ema26
-        macd_sig = macd.ewm(span=9, adjust=False).mean()
-        macd_hist = macd - macd_sig
-        delta = close.diff()
+        ema10    = close.ewm(span=10, adjust=False).mean()
+        sma50    = close.rolling(50).mean()
+        sma200   = close.rolling(200).mean()
+        vwma20   = (close * volume).rolling(20).sum() / volume.rolling(20).sum()
+        sma20    = close.rolling(20).mean()
+        bb_upper = sma20 + 2 * close.rolling(20).std()
+        bb_lower = sma20 - 2 * close.rolling(20).std()
+
+        ema12    = close.ewm(span=12, adjust=False).mean()
+        ema26    = close.ewm(span=26, adjust=False).mean()
+        macd_l   = ema12 - ema26
+        macd_sig = macd_l.ewm(span=9, adjust=False).mean()
+        macd_h   = macd_l - macd_sig
+
+        delta    = close.diff()
         avg_gain = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
         avg_loss = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
-        rs = avg_gain / avg_loss.where(avg_loss != 0, np.nan)
-        rsi = (100 - 100 / (1 + rs)).fillna(100)
-        prev_close = close.shift(1)
-        tr = pd.concat([
-            (df["High"] - df["Low"]),
-            (df["High"] - prev_close).abs(),
-            (df["Low"] - prev_close).abs(),
-        ], axis=1).max(axis=1)
-        atr = tr.ewm(com=13, adjust=False).mean()
+        rs       = avg_gain / avg_loss.where(avg_loss != 0, np.nan)
+        rsi      = (100 - 100 / (1 + rs)).fillna(50)
 
-        # Trim to 3-month display window
-        mask = df.index >= (end - pd.DateOffset(months=3))
-        df3 = df[mask]
-        close, volume = df3["Close"], df3["Volume"]
-        ema10, sma50, sma200, vwma20 = ema10[mask], sma50[mask], sma200[mask], vwma20[mask]
-        bb_upper, bb_lower = bb_upper[mask], bb_lower[mask]
-        macd, macd_sig, macd_hist = macd[mask], macd_sig[mask], macd_hist[mask]
-        rsi, atr = rsi[mask], atr[mask]
+        prev_c = close.shift(1)
+        tr     = pd.concat([(df["High"] - df["Low"]),
+                             (df["High"] - prev_c).abs(),
+                             (df["Low"]  - prev_c).abs()], axis=1).max(axis=1)
+        atr    = tr.ewm(com=13, adjust=False).mean()
 
-        charts = {}
+        def to_list(s):
+            return [{"time": d.strftime("%Y-%m-%d"), "value": round(float(v), 4)}
+                    for d, v in s.dropna().items()]
 
-        # ── Candlestick OHLC ───────────────────────────────────────────────
-        fig, ax = plt.subplots(figsize=(14, 4), facecolor=BG)
-        _ax_style(ax)
-        for date, row in df3.iterrows():
-            color = "#a6e3a1" if row.Close >= row.Open else "#f38ba8"
-            body_bottom = min(row.Open, row.Close)
-            body_height = abs(row.Close - row.Open) or 0.01
-            ax.add_patch(Rectangle(
-                (mdates.date2num(date) - 0.3, body_bottom), 0.6, body_height,
-                color=color, zorder=3,
-            ))
-            ax.plot([date, date], [row.Low, row.High], color=color, linewidth=0.8, zorder=2)
-        ax.set_xlim(mdates.date2num(df3.index[0]) - 1, mdates.date2num(df3.index[-1]) + 1)
-        ax.autoscale_view()
-        ax.set_ylabel("Price (USD)", color=TICK, fontsize=9)
-        ax.set_title(f"{ticker} — OHLC Candlestick (3 months)", color="#cdd6f4", fontsize=10, pad=8)
-        _xaxis(ax)
-        fig.tight_layout()
-        charts["candlestick"] = _fig_to_b64(fig)
-
-        # ── Price + MAs + Bollinger Bands ──────────────────────────────────
-        fig, ax = plt.subplots(figsize=(14, 4), facecolor=BG)
-        _ax_style(ax)
-        ax.plot(close.index, close, color="#e0e0f0", linewidth=1.3, label="Close", zorder=5)
-        ax.plot(ema10.index, ema10, color="#89b4fa", linewidth=0.85, label="EMA 10")
-        ax.plot(sma50.index, sma50, color="#a6e3a1", linewidth=0.85, label="SMA 50")
-        ax.plot(sma200.index, sma200, color="#f38ba8", linewidth=0.85, label="SMA 200")
-        ax.fill_between(close.index, bb_upper, bb_lower, alpha=0.08, color="#cba6f7")
-        ax.plot(bb_upper.index, bb_upper, color="#cba6f7", linewidth=0.7, linestyle=":", label="BB ±2σ")
-        ax.plot(bb_lower.index, bb_lower, color="#cba6f7", linewidth=0.7, linestyle=":")
-        ax.set_ylabel("Price (USD)", color=TICK, fontsize=9)
-        ax.set_title(f"{ticker} — Price / Moving Averages / Bollinger Bands", color="#cdd6f4", fontsize=10, pad=8)
-        ax.legend(loc="upper left", fontsize=7.5, framealpha=0.4, facecolor=BG, labelcolor="#cdd6f4", edgecolor="#333344")
-        _xaxis(ax)
-        fig.tight_layout()
-        charts["price"] = _fig_to_b64(fig)
-
-        # ── Volume + VWMA ──────────────────────────────────────────────────
-        fig, ax = plt.subplots(figsize=(14, 2.5), facecolor=BG)
-        _ax_style(ax)
-        bar_colors = [
-            "#a6e3a1" if i == 0 or close.iloc[i] >= close.iloc[i - 1] else "#f38ba8"
-            for i in range(len(close))
+        ohlcv = [
+            {
+                "time":   row.Index.strftime("%Y-%m-%d"),
+                "open":   round(float(row.Open),   4),
+                "high":   round(float(row.High),   4),
+                "low":    round(float(row.Low),    4),
+                "close":  round(float(row.Close),  4),
+                "volume": int(row.Volume),
+            }
+            for row in df.itertuples()
         ]
-        ax.bar(volume.index, volume, color=bar_colors, width=0.8, alpha=0.75)
-        ax2 = ax.twinx()
-        ax2.set_facecolor("#0d0d1a")
-        ax2.plot(vwma20.index, vwma20, color="#fab387", linewidth=1.1, label="VWMA 20")
-        ax2.tick_params(colors=TICK, labelsize=8)
-        ax2.set_ylabel("VWMA (USD)", color=TICK, fontsize=9)
-        ax2.legend(loc="upper right", fontsize=7.5, framealpha=0.4, facecolor=BG, labelcolor="#cdd6f4", edgecolor="#333344")
-        ax.set_ylabel("Volume", color=TICK, fontsize=9)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x/1e6:.0f}M"))
-        ax.set_title(f"{ticker} — Volume / VWMA", color="#cdd6f4", fontsize=10, pad=8)
-        _xaxis(ax)
-        fig.tight_layout()
-        charts["volume"] = _fig_to_b64(fig)
 
-        # ── MACD ───────────────────────────────────────────────────────────
-        fig, ax = plt.subplots(figsize=(14, 3), facecolor=BG)
-        _ax_style(ax)
-        ax.bar(macd_hist.index, macd_hist.clip(lower=0), color="#a6e3a1", width=0.8, alpha=0.85)
-        ax.bar(macd_hist.index, macd_hist.clip(upper=0), color="#f38ba8", width=0.8, alpha=0.85)
-        ax.plot(macd.index, macd, color="#89b4fa", linewidth=1.1, label="MACD")
-        ax.plot(macd_sig.index, macd_sig, color="#f9e2af", linewidth=1.1, label="Signal")
-        ax.axhline(0, color="#444455", linewidth=0.8)
-        ax.set_ylabel("MACD", color=TICK, fontsize=9)
-        ax.set_title(f"{ticker} — MACD (12, 26, 9)", color="#cdd6f4", fontsize=10, pad=8)
-        ax.legend(loc="upper left", fontsize=7.5, framealpha=0.4, facecolor=BG, labelcolor="#cdd6f4", edgecolor="#333344")
-        _xaxis(ax)
-        fig.tight_layout()
-        charts["macd"] = _fig_to_b64(fig)
-
-        # ── RSI ────────────────────────────────────────────────────────────
-        fig, ax = plt.subplots(figsize=(14, 2.5), facecolor=BG)
-        _ax_style(ax)
-        ax.plot(rsi.index, rsi, color="#89dceb", linewidth=1.1)
-        ax.axhline(70, color="#f38ba8", linewidth=0.8, linestyle="--", alpha=0.8, label="Overbought (70)")
-        ax.axhline(50, color="#444455", linewidth=0.6, alpha=0.7)
-        ax.axhline(30, color="#a6e3a1", linewidth=0.8, linestyle="--", alpha=0.8, label="Oversold (30)")
-        ax.fill_between(rsi.index, rsi, 70, where=(rsi >= 70), alpha=0.15, color="#f38ba8")
-        ax.fill_between(rsi.index, rsi, 30, where=(rsi <= 30), alpha=0.15, color="#a6e3a1")
-        ax.set_ylim(0, 100)
-        ax.set_ylabel("RSI (14)", color=TICK, fontsize=9)
-        ax.set_title(f"{ticker} — RSI (14)", color="#cdd6f4", fontsize=10, pad=8)
-        ax.legend(loc="upper left", fontsize=7.5, framealpha=0.4, facecolor=BG, labelcolor="#cdd6f4", edgecolor="#333344")
-        ax.yaxis.set_ticks([30, 50, 70])
-        _xaxis(ax)
-        fig.tight_layout()
-        charts["rsi"] = _fig_to_b64(fig)
-
-        # ── ATR ────────────────────────────────────────────────────────────
-        fig, ax = plt.subplots(figsize=(14, 2.5), facecolor=BG)
-        _ax_style(ax)
-        ax.plot(atr.index, atr, color="#cba6f7", linewidth=1.1)
-        ax.set_ylabel("ATR (14)", color=TICK, fontsize=9)
-        ax.set_title(f"{ticker} — Average True Range (14)", color="#cdd6f4", fontsize=10, pad=8)
-        _xaxis(ax)
-        fig.tight_layout()
-        charts["atr"] = _fig_to_b64(fig)
-
-        return charts
-
+        return {
+            "ohlcv":       ohlcv,
+            "ema10":       to_list(ema10),
+            "sma50":       to_list(sma50),
+            "sma200":      to_list(sma200),
+            "vwma20":      to_list(vwma20),
+            "bb_upper":    to_list(bb_upper),
+            "bb_lower":    to_list(bb_lower),
+            "macd":        to_list(macd_l),
+            "macd_signal": to_list(macd_sig),
+            "macd_hist":   to_list(macd_h),
+            "rsi":         to_list(rsi),
+            "atr":         to_list(atr),
+        }
     except Exception:
         return {}
+
+
+def _interactive_charts_html(data: dict, ticker: str) -> str:
+    """Return HTML+JS for Lightweight Charts interactive panes."""
+    if not data:
+        return ""
+
+    cid = re.sub(r"[^A-Za-z0-9]", "_", ticker)
+    data_json = json.dumps(data, separators=(",", ":"))
+
+    btns = "".join(
+        f'<button class="dur-btn" data-cid="{cid}" data-days="{days}"'
+        f' onclick="taSetRange(\'{cid}\',{days})">{label}</button>'
+        for label, days in [("5D", 5), ("1M", 30), ("3M", 90), ("6M", 180), ("1Y", 365), ("2Y", 730)]
+    )
+
+    panes = "".join(
+        f'<div class="lc-pane-label">{title}</div>'
+        f'<div id="lc-{cid}-{key}" class="lc-pane" style="height:{h}px"></div>'
+        for key, title, h in [
+            ("candle", "Candlestick · EMA10 · SMA50 · SMA200 · BB · VWMA20", 300),
+            ("vol",    "Volume",                                               100),
+            ("macd",   "MACD (12, 26, 9)",                                    110),
+            ("rsi",    "RSI (14)",                                             100),
+            ("atr",    "Average True Range (14)",                              80),
+        ]
+    )
+
+    js = f"""
+<script>
+(function(){{
+  window.__taData  = window.__taData  || {{}};
+  window.__taCharts= window.__taCharts|| {{}};
+  window.__taData['{cid}'] = {data_json};
+
+  function init(){{
+    if(typeof LightweightCharts==='undefined'){{ setTimeout(init,80); return; }}
+    var d  = window.__taData['{cid}'];
+    var LC = LightweightCharts;
+    var BG='#1a1a2e',GRID='#1e1e2e',TXT='#cdd6f4',BDR='#333344';
+
+    function mkChart(id,h){{
+      var el=document.getElementById(id); if(!el) return null;
+      return LC.createChart(el,{{
+        width:el.clientWidth, height:h,
+        layout:{{background:{{color:BG}},textColor:TXT}},
+        grid:{{vertLines:{{color:GRID}},horzLines:{{color:GRID}}}},
+        rightPriceScale:{{borderColor:BDR}},
+        timeScale:{{borderColor:BDR,timeVisible:false}},
+        crosshair:{{mode:LC.CrosshairMode.Normal}},
+        handleScale:true, handleScroll:true,
+      }});
+    }}
+
+    var c1=mkChart('lc-{cid}-candle',300);
+    var c2=mkChart('lc-{cid}-vol',   100);
+    var c3=mkChart('lc-{cid}-macd',  110);
+    var c4=mkChart('lc-{cid}-rsi',   100);
+    var c5=mkChart('lc-{cid}-atr',    80);
+    var charts=[c1,c2,c3,c4,c5].filter(Boolean);
+    window.__taCharts['{cid}']=charts;
+
+    // ── Candle pane ──────────────────────────────────────────────────────
+    var cs=c1.addCandlestickSeries({{
+      upColor:'#a6e3a1',downColor:'#f38ba8',
+      borderUpColor:'#a6e3a1',borderDownColor:'#f38ba8',
+      wickUpColor:'#a6e3a1',wickDownColor:'#f38ba8',
+    }});
+    cs.setData(d.ohlcv);
+    function line(chart,color,data,title){{
+      chart.addLineSeries({{color:color,lineWidth:1,title:title,lastValueVisible:false,priceLineVisible:false}}).setData(data);
+    }}
+    line(c1,'#89b4fa',d.ema10,  'EMA10');
+    line(c1,'#a6e3a1',d.sma50,  'SMA50');
+    line(c1,'#f38ba8',d.sma200, 'SMA200');
+    line(c1,'#fab387',d.vwma20, 'VWMA20');
+    line(c1,'#cba6f7',d.bb_upper,'BB+');
+    line(c1,'#cba6f7',d.bb_lower,'BB-');
+
+    // ── Volume pane ──────────────────────────────────────────────────────
+    if(c2){{
+      var vs=c2.addHistogramSeries({{priceFormat:{{type:'volume'}}}});
+      vs.setData(d.ohlcv.map(function(x){{
+        return {{time:x.time,value:x.volume,color:x.close>=x.open?'#a6e3a180':'#f38ba880'}};
+      }}));
+    }}
+
+    // ── MACD pane ────────────────────────────────────────────────────────
+    if(c3){{
+      var mh=c3.addHistogramSeries({{}});
+      mh.setData(d.macd_hist.map(function(x){{
+        return {{time:x.time,value:x.value,color:x.value>=0?'#a6e3a1':'#f38ba8'}};
+      }}));
+      line(c3,'#89b4fa',d.macd,       'MACD');
+      line(c3,'#f9e2af',d.macd_signal,'Signal');
+    }}
+
+    // ── RSI pane ─────────────────────────────────────────────────────────
+    if(c4){{
+      line(c4,'#89dceb',d.rsi,'RSI');
+      c4.priceScale('right').applyOptions({{autoScale:false,minimum:0,maximum:100}});
+    }}
+
+    // ── ATR pane ─────────────────────────────────────────────────────────
+    if(c5) line(c5,'#cba6f7',d.atr,'ATR');
+
+    // ── Sync all panes ───────────────────────────────────────────────────
+    var syncing=false;
+    charts.forEach(function(src){{
+      src.timeScale().subscribeVisibleLogicalRangeChange(function(range){{
+        if(syncing||!range) return;
+        syncing=true;
+        charts.forEach(function(c){{if(c!==src) c.timeScale().setVisibleLogicalRange(range);}});
+        syncing=false;
+      }});
+    }});
+
+    setTimeout(function(){{taSetRange('{cid}',90);}},100);
+
+    window.addEventListener('resize',function(){{
+      var ids=['lc-{cid}-candle','lc-{cid}-vol','lc-{cid}-macd','lc-{cid}-rsi','lc-{cid}-atr'];
+      charts.forEach(function(c,i){{
+        var el=document.getElementById(ids[i]);
+        if(el) c.applyOptions({{width:el.clientWidth}});
+      }});
+    }});
+  }}
+
+  init();
+}})();
+
+window.taSetRange = window.taSetRange || function(cid,days){{
+  var d=(window.__taData||{{}})[cid];
+  if(!d||!d.ohlcv.length) return;
+  var last=d.ohlcv[d.ohlcv.length-1].time;
+  var from=new Date(last+'T00:00:00Z');
+  from.setUTCDate(from.getUTCDate()-days);
+  var fromStr=from.toISOString().slice(0,10);
+  ((window.__taCharts||{{}})[cid]||[]).forEach(function(c){{
+    c.timeScale().setVisibleRange({{from:fromStr,to:last}});
+  }});
+  document.querySelectorAll('.dur-btn[data-cid="'+cid+'"]').forEach(function(b){{
+    b.classList.toggle('active', parseInt(b.dataset.days)===days);
+  }});
+}};
+</script>
+"""
+
+    return f'<div class="dur-btns">{btns}</div>{panes}{js}'
 
 
 def _to_html(text: str) -> str:
@@ -308,16 +336,7 @@ def _to_html(text: str) -> str:
     return f"<pre>{html.escape(text)}</pre>"
 
 
-def _card(label: str, content: str, charts: Dict[str, str] = None, ticker: str = "") -> str:
-    charts_html = ""
-    if charts:
-        charts_html = "".join(
-            f'<div class="chart-wrap">'
-            f'<p class="chart-label">{_CHART_LABELS.get(k, k)}</p>'
-            f'<img src="data:image/png;base64,{charts[k]}" alt="{ticker} {k} chart">'
-            f"</div>"
-            for k in _CHART_ORDER if k in charts
-        )
+def _card(label: str, content: str, charts_html: str = "") -> str:
     return (
         f'<div class="section-card">'
         f'<p class="agent-label">{label}</p>'
@@ -333,27 +352,29 @@ def save_html_report(
     save_path,
     timing: dict = None,
     meta: dict = None,
-) -> Path:
+) -> "Path":
     save_path = Path(save_path)
     trade_date = final_state.get("trade_date", "")
-    charts = _generate_charts(ticker, trade_date)
+
+    chart_data = _prepare_chart_data(ticker, trade_date)
+    charts_html = _interactive_charts_html(chart_data, ticker)
 
     # Metadata block
     if meta:
         depth_rounds = meta.get("research_depth", "")
-        depth_label = meta.get("research_depth_label", "")
-        provider = meta.get("llm_provider", "")
-        deep = meta.get("deep_thinker", "")
-        quick = meta.get("shallow_thinker", "")
-        analysis_date = meta.get("analysis_date", "")
-        analysts_list = meta.get("analysts", [])
-        analysts_str = ", ".join(
+        depth_label  = meta.get("research_depth_label", "")
+        provider     = meta.get("llm_provider", "")
+        deep         = meta.get("deep_thinker", "")
+        quick        = meta.get("shallow_thinker", "")
+        analysis_date    = meta.get("analysis_date", "")
+        analysts_list    = meta.get("analysts", [])
+        analysts_str     = ", ".join(
             a.value if hasattr(a, "value") else str(a) for a in analysts_list
         ) if analysts_list else "all"
-        backend_url = meta.get("backend_url", "")
-        output_language = meta.get("output_language", "")
-        google_thinking = meta.get("google_thinking_level", "")
-        openai_effort = meta.get("openai_reasoning_effort", "")
+        backend_url      = meta.get("backend_url", "")
+        output_language  = meta.get("output_language", "")
+        google_thinking  = meta.get("google_thinking_level", "")
+        openai_effort    = meta.get("openai_reasoning_effort", "")
         anthropic_effort = meta.get("anthropic_effort", "")
         thinking_agents_cfg = meta.get("thinking_agents", [])
         if provider.lower() in ("ollama", "lmstudio"):
@@ -366,30 +387,29 @@ def save_html_report(
         openai_effort = anthropic_effort = thinking_status = ""
         thinking_agents_cfg = []
 
-    generated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    generated  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     meta_items = [
-        ("Generated", generated),
-        ("Analysis Date", analysis_date),
-        ("Provider", provider),
-        ("Deep Thinker", deep),
-        ("Quick Thinker", quick),
-        ("Research Depth", f"{depth_label} ({depth_rounds} rounds)" if depth_rounds else depth_label),
-        ("Trade Date", trade_date),
-        ("Analysts", analysts_str),
-        ("Thinking", thinking_status),
-        ("Backend URL", backend_url),
+        ("Generated",             generated),
+        ("Analysis Date",         analysis_date),
+        ("Provider",              provider),
+        ("Deep Thinker",          deep),
+        ("Quick Thinker",         quick),
+        ("Research Depth",        f"{depth_label} ({depth_rounds} rounds)" if depth_rounds else depth_label),
+        ("Trade Date",            trade_date),
+        ("Analysts",              analysts_str),
+        ("Thinking",              thinking_status),
+        ("Backend URL",           backend_url),
         ("Google Thinking Level", google_thinking),
         ("OpenAI Reasoning Effort", openai_effort),
-        ("Anthropic Effort", anthropic_effort),
-        ("Output Language", output_language),
+        ("Anthropic Effort",      anthropic_effort),
+        ("Output Language",       output_language),
     ]
     meta_html = '<div class="meta">' + "".join(
         f'<div class="meta-item">'
         f'<span class="meta-label">{k}:</span>'
         f'<span class="meta-value">{v}</span>'
         f"</div>"
-        for k, v in meta_items
-        if v
+        for k, v in meta_items if v
     ) + "</div>"
 
     # Timing table
@@ -397,24 +417,24 @@ def save_html_report(
     if timing:
         total = timing.get("_total_seconds", 0)
         hh, rem = divmod(int(total), 3600)
-        mm, ss = divmod(rem, 60)
+        mm, ss  = divmod(rem, 60)
         total_str = f"{hh:02d}:{mm:02d}:{ss:02d}"
         total_llm = timing.get("_total_llm_seconds", 0)
-        has_llm = total_llm > 0
+        has_llm   = total_llm > 0
 
         _local = provider.lower() in ("ollama", "lmstudio")
         _ANALYST_NAMES = {"market", "social", "news", "fundamentals"}
-        _KEY_TO_AGENT = {
-            "Analyst Phase": None,
-            "Bull Researcher": "bull",
-            "Bear Researcher": "bear",
-            "Research Manager": "research_manager",
-            "Trader": "trader",
+        _KEY_TO_AGENT  = {
+            "Analyst Phase":      None,
+            "Bull Researcher":    "bull",
+            "Bear Researcher":    "bear",
+            "Research Manager":   "research_manager",
+            "Trader":             "trader",
             "Aggressive Analyst": "aggressive",
             "Conservative Analyst": "conservative",
-            "Neutral Analyst": "neutral",
-            "Portfolio Manager": "portfolio_manager",
-            "Summary": "summary",
+            "Neutral Analyst":    "neutral",
+            "Portfolio Manager":  "portfolio_manager",
+            "Summary":            "summary",
         }
 
         def _thinking_html(key):
@@ -433,7 +453,7 @@ def save_html_report(
                 continue
             secs = timing[key]
             m, s = divmod(int(secs), 60)
-            pct = (secs / total * 100) if total else 0
+            pct  = (secs / total * 100) if total else 0
             think_cell = _thinking_html(key)
             if has_llm:
                 llm_secs = timing.get(f"llm_{key}")
@@ -449,11 +469,11 @@ def save_html_report(
         if has_llm:
             lh, lr = divmod(int(total_llm), 3600)
             lm, ls = divmod(lr, 60)
-            llm_str = f"{lh:02d}:{lm:02d}:{ls:02d}"
-            summary = f"Total elapsed: <strong>{total_str}</strong> &nbsp;|&nbsp; LLM generation: <strong>{llm_str}</strong>"
+            llm_str  = f"{lh:02d}:{lm:02d}:{ls:02d}"
+            summary  = f"Total elapsed: <strong>{total_str}</strong> &nbsp;|&nbsp; LLM generation: <strong>{llm_str}</strong>"
             head_row = "<tr><th>Agent</th><th>Wall Clock</th><th>% of Total</th><th>LLM Time</th><th>Thinking</th></tr>"
         else:
-            summary = f"Total elapsed: <strong>{total_str}</strong>"
+            summary  = f"Total elapsed: <strong>{total_str}</strong>"
             head_row = "<tr><th>Agent</th><th>Duration</th><th>% of Total</th><th>Thinking</th></tr>"
 
         timing_html = (
@@ -473,28 +493,28 @@ def save_html_report(
 
     analyst_cards = []
     for name, key in [
-        ("Market Analyst", "market_report"),
-        ("Social Analyst", "sentiment_report"),
-        ("News Analyst", "news_report"),
+        ("Market Analyst",       "market_report"),
+        ("Social Analyst",       "sentiment_report"),
+        ("News Analyst",         "news_report"),
         ("Fundamentals Analyst", "fundamentals_report"),
     ]:
         text = final_state.get(key)
         if not text:
             continue
-        embed = charts if key == "market_report" else None
-        analyst_cards.append(_card(name, text, charts=embed, ticker=ticker))
+        embed = charts_html if key == "market_report" else ""
+        analyst_cards.append(_card(name, text, charts_html=embed))
     if analyst_cards:
         body.append("<h2>I. Analyst Team Reports</h2>" + "".join(analyst_cards))
 
     debate = final_state.get("investment_debate_state", {})
     research_parts = [
-        (name, debate.get(key))
-        for name, key in [
-            ("Bull Researcher", "bull_history"),
-            ("Bear Researcher", "bear_history"),
+        (name, debate.get(k))
+        for name, k in [
+            ("Bull Researcher",  "bull_history"),
+            ("Bear Researcher",  "bear_history"),
             ("Research Manager", "judge_decision"),
         ]
-        if debate.get(key)
+        if debate.get(k)
     ]
     if research_parts:
         body.append(
@@ -510,13 +530,13 @@ def save_html_report(
 
     risk = final_state.get("risk_debate_state", {})
     risk_parts = [
-        (name, risk.get(key))
-        for name, key in [
-            ("Aggressive Analyst", "aggressive_history"),
+        (name, risk.get(k))
+        for name, k in [
+            ("Aggressive Analyst",   "aggressive_history"),
             ("Conservative Analyst", "conservative_history"),
-            ("Neutral Analyst", "neutral_history"),
+            ("Neutral Analyst",      "neutral_history"),
         ]
-        if risk.get(key)
+        if risk.get(k)
     ]
     if risk_parts:
         body.append(
@@ -530,13 +550,14 @@ def save_html_report(
             + _card("Portfolio Manager", risk["judge_decision"])
         )
 
-    html = f"""<!DOCTYPE html>
+    html_out = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trading Analysis: {ticker}</title>
 <style>{_CSS}</style>
+<script src="{_LC_CDN}"></script>
 </head>
 <body>
 <div class="container">
@@ -549,5 +570,5 @@ def save_html_report(
 </html>"""
 
     out = save_path / f"{save_path.name}_complete_report.html"
-    out.write_text(html, encoding="utf-8")
+    out.write_text(html_out, encoding="utf-8")
     return out
