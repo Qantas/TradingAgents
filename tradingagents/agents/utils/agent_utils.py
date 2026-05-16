@@ -21,19 +21,25 @@ from tradingagents.agents.utils.news_data_tools import (
 
 
 def ensure_user_message(messages: list, agent_name: str = "") -> list:
-    """Ensure messages start with a HumanMessage for local Qwen3 providers.
+    """Ensure the first user turn carries the /no_think prefix for local Qwen3 providers.
 
-    LM Studio requires at least one user turn at the start of every call due
-    to its jinja template. Ollama needs the same so the /no_think prefix reaches
-    the first user turn. Cloud providers are unaffected.
-    The seed is not stored in state so we must prepend it on every invoke —
-    including mid-ReAct iterations where state starts with an AIMessage.
+    LM Studio requires at least one user turn at the start of every call due to
+    its jinja template. Ollama additionally needs the /no_think prefix in that
+    first turn on every call — including mid-ReAct iterations after create_msg_delete
+    replaces state with [HumanMessage("Continue")], which has no prefix.
+    Cloud providers are unaffected.
     """
     from tradingagents.dataflows.config import get_config
-    if get_config().get("llm_provider", "").lower() not in ("ollama", "lmstudio"):
+    provider = get_config().get("llm_provider", "").lower()
+    if provider not in ("ollama", "lmstudio"):
         return messages
+    prefix = no_think_prefix(agent_name)
     if not messages or not isinstance(messages[0], HumanMessage):
-        return [HumanMessage(content=f"{no_think_prefix(agent_name)}Begin your analysis.")] + list(messages)
+        return [HumanMessage(content=f"{prefix}Begin your analysis.")] + list(messages)
+    # For Ollama: ensure the prefix is in the first user turn on every call.
+    # For LM Studio: having any HumanMessage first satisfies the template.
+    if provider == "ollama" and prefix and not messages[0].content.startswith(prefix):
+        return [HumanMessage(content=prefix + messages[0].content)] + list(messages[1:])
     return messages
 
 

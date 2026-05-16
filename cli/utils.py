@@ -362,7 +362,9 @@ def ask_thinking_agents() -> set[str]:
             ("pointer", "fg:cyan noinherit"),
         ]),
     ).ask()
-    return _THINKING_AGENT_PRESETS.get(choice or "none", set())
+    if choice is None:
+        exit(1)
+    return _THINKING_AGENT_PRESETS.get(choice, set())
 
 
 def ask_output_language() -> str:
