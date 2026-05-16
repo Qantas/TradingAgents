@@ -93,7 +93,7 @@ tr:hover { background: #1e1e2e; }
   font-size: 0.72rem; color: #6c7086; text-transform: uppercase;
   letter-spacing: 0.08em; margin: 10px 0 2px;
 }
-.lc-pane { width: 100%; border-radius: 6px; overflow: hidden; }
+.lc-pane { width: 100%; border-radius: 6px; }
 """
 
 
@@ -219,24 +219,24 @@ def _interactive_charts_html(data: dict, ticker: str) -> str:
     var LC = LightweightCharts;
     var BG='#1a1a2e',GRID='#1e1e2e',TXT='#cdd6f4',BDR='#333344';
 
-    function mkChart(id,h){{
+    function mkChart(id,h,showTime){{
       var el=document.getElementById(id); if(!el) return null;
       return LC.createChart(el,{{
         width:el.clientWidth, height:h,
         layout:{{background:{{color:BG}},textColor:TXT}},
         grid:{{vertLines:{{color:GRID}},horzLines:{{color:GRID}}}},
         rightPriceScale:{{borderColor:BDR}},
-        timeScale:{{borderColor:BDR,timeVisible:false}},
+        timeScale:{{borderColor:BDR,timeVisible:true,visible:showTime}},
         crosshair:{{mode:LC.CrosshairMode.Normal}},
         handleScale:true, handleScroll:true,
       }});
     }}
 
-    var c1=mkChart('lc-{cid}-candle',300);
-    var c2=mkChart('lc-{cid}-vol',   100);
-    var c3=mkChart('lc-{cid}-macd',  110);
-    var c4=mkChart('lc-{cid}-rsi',   100);
-    var c5=mkChart('lc-{cid}-atr',    80);
+    var c1=mkChart('lc-{cid}-candle',300,false);
+    var c2=mkChart('lc-{cid}-vol',   100,false);
+    var c3=mkChart('lc-{cid}-macd',  110,false);
+    var c4=mkChart('lc-{cid}-rsi',   100,false);
+    var c5=mkChart('lc-{cid}-atr',    80,true);
     var charts=[c1,c2,c3,c4,c5].filter(Boolean);
     window.__taCharts['{cid}']=charts;
 
