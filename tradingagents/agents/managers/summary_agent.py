@@ -57,9 +57,9 @@ def create_summary_agent(llm):
         raw = [(name, text) for name, text in sections if text]
 
         provider = get_config().get("llm_provider", "").lower()
-        # LM Studio serializes all inference requests server-side; spawning 12 threads
-        # just queues them and can exhaust the connection pool. Use 1 worker instead.
-        max_workers = 1 if provider == "lmstudio" else min(len(raw), 4)
+        # Ollama and LM Studio serialize inference server-side; N threads just queues
+        # requests and risks connection pool exhaustion. Cloud providers run in parallel.
+        max_workers = 1 if provider in ("lmstudio", "ollama") else min(len(raw), 4)
 
         extracted: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
