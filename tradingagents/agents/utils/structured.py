@@ -182,6 +182,30 @@ def _extract_json(text: str, schema: type[T]) -> T:
     raise ValueError("no JSON object found in response")
 
 
+def _force_no_think(prompt: Any) -> Any:
+    """Prepend /no_think to the first user turn for Ollama/LM Studio.
+
+    Structured output (response_format JSON schema) + Qwen3 thinking mode
+    causes the model to spend all tokens on reasoning and produce empty
+    content. Suppress thinking unconditionally for structured calls
+    regardless of the thinking_agents config.
+    """
+    from tradingagents.dataflows.config import get_config
+    if get_config().get("llm_provider", "").lower() not in ("ollama", "lmstudio"):
+        return prompt
+    prefix = "/no_think\n"
+    if isinstance(prompt, str):
+        return prompt if prompt.startswith(prefix) else prefix + prompt
+    if isinstance(prompt, list):
+        for i, msg in enumerate(prompt):
+            if isinstance(msg, dict) and msg.get("role") in ("user", "human"):
+                content = msg.get("content", "")
+                if isinstance(content, str) and not content.startswith(prefix):
+                    return prompt[:i] + [{**msg, "content": prefix + content}] + prompt[i + 1:]
+                return prompt
+    return prompt
+
+
 def invoke_structured_or_freetext(
     structured_llm: Optional[Any],
     plain_llm: Any,
@@ -201,9 +225,11 @@ def invoke_structured_or_freetext(
     Step 2 reuses the response already fetched in the fallback call, so the
     total number of LLM calls is at most 2 regardless of which path fires.
     """
+    no_think_prompt = _force_no_think(prompt)
+
     if structured_llm is not None:
         try:
-            result = structured_llm.invoke(prompt)
+            result = structured_llm.invoke(no_think_prompt)
             return render(result)
         except Exception as exc:
             logger.warning(
@@ -213,7 +239,7 @@ def invoke_structured_or_freetext(
             )
 
     # Plain-text call with a JSON nudge appended
-    hinted_prompt = _append_json_hint(prompt, schema)
+    hinted_prompt = _append_json_hint(no_think_prompt, schema)
     response = plain_llm.invoke(hinted_prompt)
     raw = response.content
 
