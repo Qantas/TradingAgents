@@ -1,13 +1,18 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langchain_core.prompts import ChatPromptTemplate
 from tradingagents.agents.utils.agent_utils import get_language_instruction, no_think_prefix
 
-# Only the tail of each section is needed — all agent types put their final verdict last.
-# 1500 chars ≈ 375 tokens, well within prefill budget for a 35B model.
 _TAIL_CHARS = 1500
-# 400 output tokens: 5 fields × ~30 tokens each = ~150, doubled for safety + preamble.
 _EXTRACT_MAX_TOKENS = 1000
+_TOTAL_BUDGET = 30_000
+
+
+def _trim_tail(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return "...\n" + text[-max_chars:]
 
 
 def _extract_agent_verdict(llm, name: str, text: str) -> tuple[str, str]:
@@ -30,6 +35,7 @@ def _extract_agent_verdict(llm, name: str, text: str) -> tuple[str, str]:
 
 def create_summary_agent(llm):
     def summary_agent_node(state):
+        from tradingagents.dataflows.config import get_config
         debate = state.get("investment_debate_state", {})
         risk = state.get("risk_debate_state", {})
 
@@ -50,24 +56,43 @@ def create_summary_agent(llm):
 
         raw = [(name, text) for name, text in sections if text]
 
+        provider = get_config().get("llm_provider", "").lower()
+        # LM Studio serializes all inference requests server-side; spawning 12 threads
+        # just queues them and can exhaust the connection pool. Use 1 worker instead.
+        max_workers = 1 if provider == "lmstudio" else min(len(raw), 4)
+
         extracted: dict[str, str] = {}
-        with ThreadPoolExecutor(max_workers=len(raw)) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(_extract_agent_verdict, llm, name, text): name
                 for name, text in raw
             }
             for future in as_completed(futures):
+                agent_name = futures[future]
                 try:
-                    name, verdict = future.result()
-                    extracted[name] = verdict
-                except Exception:
-                    pass
+                    _, verdict = future.result()
+                    if verdict.strip():
+                        extracted[agent_name] = verdict
+                except Exception as exc:
+                    logging.warning("summary: extraction failed for %s: %s", agent_name, exc)
 
-        content = "\n\n".join(
-            f"## {name}\n{extracted[name]}"
-            for name, _ in raw
-            if name in extracted
-        )
+        if extracted:
+            content = "\n\n".join(
+                f"## {name}\n{extracted[name]}"
+                for name, _ in raw
+                if name in extracted
+            )
+        else:
+            # All extractions failed — fall back to trimmed raw tails so the format
+            # LLM receives real prices rather than generating a hypothetical example.
+            logging.warning("summary: all extractions failed, falling back to raw tails")
+            total_chars = sum(len(t) for _, t in raw)
+            if total_chars > _TOTAL_BUDGET:
+                per_section = _TOTAL_BUDGET // len(raw)
+                pairs = [(n, _trim_tail(t, per_section)) for n, t in raw]
+            else:
+                pairs = raw
+            content = "\n\n".join(f"## {name}\n{text}" for name, text in pairs)
 
         system_message = (
             "You are a financial report summarizer. Given structured verdicts from multiple trading agents,"
