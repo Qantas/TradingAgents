@@ -36,6 +36,11 @@ _JSON_HINT_BASE = (
 )
 
 
+def _is_local_provider() -> bool:
+    from tradingagents.dataflows.config import get_config
+    return get_config().get("llm_provider", "").lower() in ("ollama", "lmstudio")
+
+
 def bind_structured(llm: Any, schema: type[T], agent_name: str) -> Optional[Any]:
     """Return ``llm.with_structured_output(schema)`` or ``None`` if unsupported.
 
@@ -43,6 +48,10 @@ def bind_structured(llm: Any, schema: type[T], agent_name: str) -> Optional[Any]
     will use free-text generation for every call instead of one-shot fallback.
     """
     try:
+        # Ollama 0.30+ with the llama.cpp backend requires think=False at the
+        # API level; the /no_think prompt prefix alone is no longer sufficient.
+        if _is_local_provider():
+            llm = llm.bind(extra_body={"think": False})
         return llm.with_structured_output(schema)
     except (NotImplementedError, AttributeError) as exc:
         logger.warning(
@@ -226,6 +235,12 @@ def invoke_structured_or_freetext(
     total number of LLM calls is at most 2 regardless of which path fires.
     """
     no_think_prompt = _force_no_think(prompt)
+
+    # Bind think=False at the API level for local providers so the fallback
+    # plain-text call also suppresses thinking (prompt prefix alone is not
+    # reliable on Ollama 0.30+ with the llama.cpp backend).
+    if _is_local_provider():
+        plain_llm = plain_llm.bind(extra_body={"think": False})
 
     if structured_llm is not None:
         try:
